@@ -16,6 +16,7 @@ import type { Product, ProductCode } from "@/features/order/catalog";
 import { ProductCatalog } from "@/features/order/ProductCatalog";
 import {
   formatSatang,
+  formatThaiDateTime,
   OrderError,
   placeOrder,
   type OrderReceipt,
@@ -230,15 +231,8 @@ export const OrderCalculator = ({
                   {isRedConflict && orderError.availableAt ? (
                     <p className="text-muted-foreground mt-1 text-sm">
                       Red is available again at{" "}
-                      {new Intl.DateTimeFormat(undefined, {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                        hour: "numeric",
-                        minute: "2-digit",
-                        timeZoneName: "short",
-                      }).format(new Date(orderError.availableAt))}
-                      . Your other Product quantities are preserved.
+                      {formatThaiDateTime(orderError.availableAt)} น. Your other
+                      Product quantities are preserved.
                     </p>
                   ) : null}
                   {orderError.kind === "unknown" ? (

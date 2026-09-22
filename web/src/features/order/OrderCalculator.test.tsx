@@ -447,6 +447,7 @@ describe("OrderCalculator", () => {
       await screen.findByText("Red is temporarily unavailable"),
     ).toBeInTheDocument();
     expect(screen.getByText(/available again at/i)).toBeInTheDocument();
+    expect(screen.getByText(/22 ก\.ย\. 2569 18:15 น\./)).toBeInTheDocument();
     expect(
       screen.getByRole("status", { name: "Red set quantity" }),
     ).toHaveTextContent("1");

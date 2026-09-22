@@ -304,3 +304,14 @@ export const formatSatang = (satang: number, currency: "THB" = "THB") =>
     currency,
     minimumFractionDigits: 2,
   }).format(satang / 100);
+
+export const formatThaiDateTime = (isoTimestamp: string) =>
+  new Intl.DateTimeFormat("th-TH", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Bangkok",
+  }).format(new Date(isoTimestamp));
