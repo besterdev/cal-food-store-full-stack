@@ -347,4 +347,59 @@ describe("OrderCalculator", () => {
     await waitFor(() => expect(submitOrder).toHaveBeenCalledTimes(2));
     expect(keys[0]).not.toBe(keys[1]);
   });
+
+  it("preserves the draft on Red conflict and allows removing Red", async () => {
+    const user = userEvent.setup();
+    const submitOrder = vi
+      .fn(async (input: PlaceOrderInput) => {
+        expect(input.lines).toEqual([{ productCode: "BLUE", quantity: 1 }]);
+        return receipt;
+      })
+      .mockRejectedValueOnce(
+        new OrderError(
+          "red_unavailable",
+          "Red is unavailable until the specified time.",
+          false,
+          "RED_UNAVAILABLE",
+          "2026-09-22T11:15:30Z",
+        ),
+      );
+
+    renderCalculator({ submitOrder });
+    await screen.findByText("Red set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Red set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Increase Blue set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+
+    expect(
+      await screen.findByText("Red is temporarily unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/available again at/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "Red set quantity" }),
+    ).toHaveTextContent("1");
+    expect(
+      screen.getByRole("status", { name: "Blue set quantity" }),
+    ).toHaveTextContent("1");
+
+    await user.click(screen.getByRole("button", { name: "Remove Red" }));
+    expect(
+      screen.getByRole("status", { name: "Red set quantity" }),
+    ).toHaveTextContent("0");
+    expect(
+      screen.getByRole("status", { name: "Blue set quantity" }),
+    ).toHaveTextContent("1");
+
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    expect(await screen.findByText(/Order 018f4f10/)).toBeInTheDocument();
+    expect(submitOrder).toHaveBeenCalledTimes(2);
+  });
 });

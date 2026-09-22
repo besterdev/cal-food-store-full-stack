@@ -17,6 +17,9 @@
   --ring: #1d6f53;
   --destructive: #9d2f3a;
   --destructive-surface: #fbe8ea;
+  --warning: #8a5a10;
+  --warning-surface: #fff4d9;
+  --warning-border: #e6c56a;
   --product-red: #c4473d;
   --product-red-tint: #f8e7e4;
   --product-red-foreground: #76271f;
@@ -62,6 +65,9 @@
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
   --color-destructive-surface: var(--destructive-surface);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-border: var(--warning-border);
   --color-product-red: var(--product-red);
   --color-product-red-tint: var(--product-red-tint);
   --color-product-red-foreground: var(--product-red-foreground);

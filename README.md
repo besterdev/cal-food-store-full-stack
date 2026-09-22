@@ -6,15 +6,15 @@ The implementation is delivered in vertical slices tracked by [GitHub Issue #1](
 
 ## Current slice
 
-The runnable Member Discount slice provides:
+The runnable Red Availability slice provides:
 
-- optional Member Card input that applies a 10% Member Discount after Pair Discounts with half-up satang rounding;
-- privacy-safe handling that never persists, returns, or logs the raw Member Card number;
-- receipt and UI rows that separately explain Pair Discounts, Member Discount, and Final Total;
-- idempotency-key regeneration when membership changes, with same-key retry for an unchanged intent;
-- pricing, HTTP, PostgreSQL, and frontend coverage for member-only, Pair-plus-member, and whitespace-only cases.
+- a store-wide rolling 60-minute Red Availability Window locked in the same PostgreSQL transaction as Order acceptance;
+- exactly one concurrent new Red-containing Order accepted while non-Red Orders remain available;
+- idempotent Red replay that does not recheck or extend the window;
+- `409 RED_UNAVAILABLE` with RFC 3339 `available_at` and UI recovery that preserves the draft and offers Remove Red;
+- real PostgreSQL concurrency, boundary, rollback, and frontend conflict-recovery coverage.
 
-Red Availability concurrency and final recovery/accessibility verification are tracked by the remaining child tickets.
+Final recovery, accessibility, and release verification are tracked by the remaining child ticket.
 
 ## Run the stack
 

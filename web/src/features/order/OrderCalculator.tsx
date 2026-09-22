@@ -107,8 +107,20 @@ export const OrderCalculator = ({
     submitCurrentIntent();
   };
 
+  const removeRed = () => {
+    if (locked) {
+      return;
+    }
+    setEmptySubmitAttempted(false);
+    setIdempotencyKey(createIdempotencyKey());
+    mutation.reset();
+    setQuantities((current) => ({ ...current, RED: 0 }));
+  };
+
   const orderError =
     mutation.error instanceof OrderError ? mutation.error : null;
+  const isRedConflict = orderError?.kind === "red_unavailable";
+  const hasRedQuantity = (quantities.RED ?? 0) > 0;
 
   return (
     <div className="grid gap-6 lg:grid-cols-12 lg:gap-8">
@@ -161,38 +173,58 @@ export const OrderCalculator = ({
             </Alert>
           ) : null}
           {orderError ? (
-            <Alert aria-live="assertive" role="alert">
+            <Alert
+              aria-live="assertive"
+              role="alert"
+              tone={isRedConflict ? "warning" : "danger"}
+            >
               <div className="flex gap-3">
                 <AlertTriangle
                   aria-hidden="true"
-                  className="text-destructive mt-0.5 shrink-0"
+                  className={`mt-0.5 shrink-0 ${isRedConflict ? "text-warning" : "text-destructive"}`}
                   size={20}
                 />
                 <div>
-                  <p className="font-semibold">{orderError.message}</p>
-                  {orderError.kind === "red_unavailable" &&
-                  orderError.availableAt ? (
+                  <p className="font-semibold">
+                    {isRedConflict
+                      ? "Red is temporarily unavailable"
+                      : orderError.message}
+                  </p>
+                  {isRedConflict && orderError.availableAt ? (
                     <p className="text-muted-foreground mt-1 text-sm">
                       Red is available again at{" "}
                       {new Intl.DateTimeFormat(undefined, {
-                        dateStyle: "medium",
-                        timeStyle: "short",
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
                         timeZoneName: "short",
                       }).format(new Date(orderError.availableAt))}
-                      . Remove Red or retry later.
+                      . Your other Product quantities are preserved.
                     </p>
                   ) : null}
-                  {orderError.retryable ? (
-                    <Button
-                      className="mt-4"
-                      onClick={submitCurrentIntent}
-                      type="button"
-                      variant="outline"
-                    >
-                      <RefreshCw aria-hidden="true" size={18} />
-                      Retry order
-                    </Button>
-                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {isRedConflict && hasRedQuantity ? (
+                      <Button
+                        onClick={removeRed}
+                        type="button"
+                        variant="secondary"
+                      >
+                        Remove Red
+                      </Button>
+                    ) : null}
+                    {orderError.retryable ? (
+                      <Button
+                        onClick={submitCurrentIntent}
+                        type="button"
+                        variant="outline"
+                      >
+                        <RefreshCw aria-hidden="true" size={18} />
+                        Retry order
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </Alert>

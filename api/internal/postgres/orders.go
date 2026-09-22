@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type placementTx struct {
@@ -180,7 +181,7 @@ func (t *placementTx) ReadClock(ctx context.Context) (time.Time, error) {
 }
 
 func (t *placementTx) LockRedGate(ctx context.Context) (time.Time, error) {
-	var availableAt time.Time
+	var availableAt pgtype.Timestamptz
 	if err := t.tx.QueryRow(ctx, `
 		SELECT available_at
 		FROM red_availability_gate
@@ -189,13 +190,26 @@ func (t *placementTx) LockRedGate(ctx context.Context) (time.Time, error) {
 	`).Scan(&availableAt); err != nil {
 		return time.Time{}, classifyDBError("lock red gate", err)
 	}
-	return availableAt, nil
+	return gateTime(availableAt), nil
+}
+
+// gateTime maps PostgreSQL timestamptz, including the seeded -infinity value,
+// into a comparable Go time. Negative infinity means Red is immediately available.
+func gateTime(value pgtype.Timestamptz) time.Time {
+	switch value.InfinityModifier {
+	case pgtype.NegativeInfinity:
+		return time.Time{}
+	case pgtype.Infinity:
+		return time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+	default:
+		return value.Time
+	}
 }
 
 func (t *placementTx) AdvanceRedGate(ctx context.Context, from time.Time) error {
 	if _, err := t.tx.Exec(ctx, `
 		UPDATE red_availability_gate
-		SET available_at = $1 + interval '60 minutes'
+		SET available_at = $1::timestamptz + interval '60 minutes'
 		WHERE product_code = 'RED'
 	`, from); err != nil {
 		return classifyDBError("update red gate", err)

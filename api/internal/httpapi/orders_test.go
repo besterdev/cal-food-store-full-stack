@@ -289,6 +289,49 @@ func TestCreateOrderMapsValidationErrors(t *testing.T) {
 	assertFieldError(t, res, "VALIDATION_ERROR")
 }
 
+func TestCreateOrderMapsRedUnavailable(t *testing.T) {
+	availableAt := time.Date(2026, 9, 22, 11, 15, 30, 0, time.UTC)
+	deps := &dependencies{
+		placeFunc: func(context.Context, ordering.Command) (ordering.Receipt, error) {
+			return ordering.Receipt{}, &ordering.RedConflictError{AvailableAt: availableAt}
+		},
+	}
+	app := httpapi.New(httpapi.Config{}, deps, deps, deps)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/orders",
+		bytes.NewBufferString(`{"lines":[{"product_code":"RED","quantity":1}]}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "key-red")
+
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST orders: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusConflict)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body["code"] != "RED_UNAVAILABLE" {
+		t.Fatalf("code = %#v", body["code"])
+	}
+	if body["available_at"] != "2026-09-22T11:15:30Z" {
+		t.Fatalf("available_at = %#v", body["available_at"])
+	}
+	if _, ok := body["field_errors"]; ok {
+		t.Fatalf("field_errors must be omitted for RED_UNAVAILABLE: %#v", body)
+	}
+	if len(body) != 4 {
+		t.Fatalf("body keys = %#v, want code message request_id available_at", body)
+	}
+}
+
 func TestCreateOrderMapsIdempotencyConflict(t *testing.T) {
 	deps := &dependencies{
 		placeFunc: func(context.Context, ordering.Command) (ordering.Receipt, error) {
