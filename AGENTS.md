@@ -272,19 +272,19 @@ go test -race ./...
 
 ## Commit Message Convention
 
-Prefix each commit subject with one Gitmoji matching the primary intent, followed by a short imperative, lower-case summary with no trailing period:
+Prefix each commit subject with one Gitmoji, a Conventional Commit type, a colon, then a short imperative lower-case summary with no trailing period:
 
 ```text
-✨ add food store product selector
-🐛 fix member discount rounding
-📝 document order API contract
-💄 restyle receipt summary
-♻️ refactor pricing calculation
-✅ add red-order concurrency tests
-🔧 configure local postgres service
+✨ feat: add food store product selector
+🐛 fix: correct member discount rounding
+📝 docs: document order API contract
+💄 style: restyle receipt summary
+♻️ refactor: simplify pricing calculation
+✅ test: add red-order concurrency tests
+🔧 chore: configure local postgres service
 ```
 
-Do not stack multiple emojis in one subject.
+Use the type that matches the primary intent (`feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, or `ci`). Do not stack multiple emojis in one subject.
 
 ## Agent skills
 
