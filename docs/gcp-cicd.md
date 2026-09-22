@@ -5,18 +5,32 @@
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `CI` | PR + push to `main` | Frontend checks, Go tests (with Postgres), OpenAPI lint |
-| `Deploy GCP` | push to `main` + manual dispatch | Build images, migrate, deploy API + web to Cloud Run |
+| `Deploy GCP` | after CI succeeds on `main`, or manual dispatch | Build images, migrate, deploy API + web to Cloud Run |
 
-## One-time GCP setup for Deploy
+## Auth model
 
-Create a deploy service account and download a JSON key (store only in GitHub Secrets):
+This repo uses **Workload Identity Federation** (no JSON service-account keys). The org policy `iam.disableServiceAccountKeyCreation` blocks key download, so WIF is required.
+
+Configured GitHub Actions variables:
+
+| Variable | Example |
+| --- | --- |
+| `GCP_PROJECT_ID` | `project-e18e387f-34bb-43fb-9db` |
+| `GCP_REGION` | `asia-southeast1` |
+| `GCP_SERVICE_ACCOUNT` | `github-deploy@…iam.gserviceaccount.com` |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/…/workloadIdentityPools/github-actions/providers/github` |
+
+## One-time GCP setup (already done for this project)
 
 ```bash
 PROJECT_ID=project-e18e387f-34bb-43fb-9db
-SA_NAME=github-deploy
-SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+SA_EMAIL="github-deploy@${PROJECT_ID}.iam.gserviceaccount.com"
+REPO="besterdev/cal-food-store-full-stack"
+POOL_ID=github-actions
+PROVIDER_ID=github
 
-gcloud iam service-accounts create "${SA_NAME}" \
+gcloud iam service-accounts create github-deploy \
   --display-name="GitHub Actions deploy" \
   --project="${PROJECT_ID}"
 
@@ -32,30 +46,34 @@ do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${SA_EMAIL}" \
     --role="${ROLE}" \
-    --condition=None \
-    --quiet
+    --condition=None --quiet
 done
 
-gcloud iam service-accounts keys create ./github-deploy-key.json \
-  --iam-account="${SA_EMAIL}" \
+gcloud iam workload-identity-pools create "${POOL_ID}" \
+  --location=global \
+  --display-name="GitHub Actions" \
   --project="${PROJECT_ID}"
+
+gcloud iam workload-identity-pools providers create-oidc "${PROVIDER_ID}" \
+  --location=global \
+  --workload-identity-pool="${POOL_ID}" \
+  --display-name="GitHub" \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
+  --attribute-condition="assertion.repository=='${REPO}'" \
+  --project="${PROJECT_ID}"
+
+gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
+  --project="${PROJECT_ID}" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${REPO}"
+
+gh variable set GCP_PROJECT_ID --body "${PROJECT_ID}"
+gh variable set GCP_REGION --body "asia-southeast1"
+gh variable set GCP_SERVICE_ACCOUNT --body "${SA_EMAIL}"
+gh variable set GCP_WORKLOAD_IDENTITY_PROVIDER \
+  --body "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/providers/${PROVIDER_ID}"
 ```
-
-In the GitHub repo:
-
-1. **Settings → Secrets and variables → Actions → Secrets**
-   - `GCP_SA_KEY` = full contents of `github-deploy-key.json`
-2. **Settings → Secrets and variables → Actions → Variables**
-   - `GCP_PROJECT_ID` = `project-e18e387f-34bb-43fb-9db`
-   - `GCP_REGION` = `asia-southeast1` (optional; this is the default)
-
-Delete the local key file after uploading:
-
-```bash
-rm ./github-deploy-key.json
-```
-
-Prefer Workload Identity Federation later; the JSON key keeps the first setup short.
 
 ## Manual deploy
 
@@ -63,7 +81,7 @@ Prefer Workload Identity Federation later; the JSON key keeps the first setup sh
 gh workflow run "Deploy GCP"
 ```
 
-Or locally:
+Or locally (uses your user credentials):
 
 ```bash
 ./scripts/gcp-deploy.sh
