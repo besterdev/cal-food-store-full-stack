@@ -31,6 +31,41 @@ Open:
 
 Stop with `docker compose down`. The development database uses the named `food-store-postgres` volume.
 
+## Deploy to GCP (Cloud Run)
+
+Script: [`scripts/gcp-deploy.sh`](./scripts/gcp-deploy.sh). Requires `gcloud` authenticated to a billed project.
+
+```bash
+gcloud config set project YOUR_PROJECT_ID
+./scripts/gcp-deploy.sh
+```
+
+Defaults (`asia-southeast1`):
+
+- Artifact Registry `food-store`
+- Cloud SQL Postgres 17 `food-store-pg` (`db-f1-micro`)
+- Cloud Run `food-store-api`, `food-store-web`
+- Cloud Run Job `food-store-migrate`
+- Secret Manager `food-store-database-url`
+
+Override with `GCP_PROJECT_ID`, `GCP_REGION`, or the other env vars documented in the script.
+
+Current production URLs (project `project-e18e387f-34bb-43fb-9db`):
+
+- Web: <https://food-store-web-lfcng66dzq-as.a.run.app>
+- API: <https://food-store-api-lfcng66dzq-as.a.run.app>
+- Products: <https://food-store-api-lfcng66dzq-as.a.run.app/api/v1/products>
+- Ready: <https://food-store-api-lfcng66dzq-as.a.run.app/health/ready>
+
+Cloud SQL incurs ongoing cost even when idle; delete the instance when you no longer need the demo.
+
+## CI/CD (GitHub Actions)
+
+- **CI** (`.github/workflows/ci.yml`): format, lint, typecheck, frontend tests/build, Go vet/test/race with Postgres, OpenAPI lint — on every PR and push to `main`.
+- **Deploy** (`.github/workflows/deploy.yml`): after CI succeeds on `main` (or manual dispatch), runs `scripts/gcp-deploy.sh` to Cloud Run.
+
+Setup for deploy secrets/variables: [`docs/gcp-cicd.md`](./docs/gcp-cicd.md).
+
 ## Architecture
 
 ```text

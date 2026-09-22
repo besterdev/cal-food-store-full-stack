@@ -40,7 +40,11 @@ func main() {
 		BaseContext:    ctx,
 		Logger:         logger,
 	}, store, store, orders)
-	address := envOrDefault("API_ADDRESS", ":8080")
+	address := envOrDefault("API_ADDRESS", "")
+	if address == "" {
+		port := envOrDefault("PORT", "8080")
+		address = ":" + port
+	}
 
 	serveErrors := make(chan error, 1)
 	go func() {
