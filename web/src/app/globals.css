@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5f3ed;
+  --foreground: #202822;
+  --card: #ffffff;
+  --card-foreground: #202822;
+  --primary: #175c45;
+  --primary-foreground: #ffffff;
+  --secondary: #e7eee9;
+  --secondary-foreground: #244b3b;
+  --muted: #ece9e0;
+  --muted-foreground: #59615b;
+  --accent: #dce9e1;
+  --border: #d6d1c5;
+  --input: #bfb9ac;
+  --ring: #1d6f53;
+  --destructive: #9d2f3a;
+  --destructive-surface: #fbe8ea;
+  --product-red: #c4473d;
+  --product-red-tint: #f8e7e4;
+  --product-red-foreground: #76271f;
+  --product-green: #587a36;
+  --product-green-tint: #eaf1df;
+  --product-green-foreground: #344d1e;
+  --product-blue: #35699e;
+  --product-blue-tint: #e4eef7;
+  --product-blue-foreground: #254c73;
+  --product-yellow: #d4a317;
+  --product-yellow-tint: #fff3c7;
+  --product-yellow-foreground: #654900;
+  --product-pink: #b74e73;
+  --product-pink-tint: #f8e6ed;
+  --product-pink-foreground: #762e48;
+  --product-purple: #7659a6;
+  --product-purple-tint: #eee8f7;
+  --product-purple-foreground: #4b3970;
+  --product-orange: #c4651b;
+  --product-orange-tint: #fbeadb;
+  --product-orange-foreground: #733a10;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-calculator: 0 1px 2px rgb(45 55 48 / 0.06);
+  --shadow-receipt: 0 12px 32px rgb(45 55 48 / 0.1);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-surface: var(--destructive-surface);
+  --color-product-red: var(--product-red);
+  --color-product-red-tint: var(--product-red-tint);
+  --color-product-red-foreground: var(--product-red-foreground);
+  --color-product-green: var(--product-green);
+  --color-product-green-tint: var(--product-green-tint);
+  --color-product-green-foreground: var(--product-green-foreground);
+  --color-product-blue: var(--product-blue);
+  --color-product-blue-tint: var(--product-blue-tint);
+  --color-product-blue-foreground: var(--product-blue-foreground);
+  --color-product-yellow: var(--product-yellow);
+  --color-product-yellow-tint: var(--product-yellow-tint);
+  --color-product-yellow-foreground: var(--product-yellow-foreground);
+  --color-product-pink: var(--product-pink);
+  --color-product-pink-tint: var(--product-pink-tint);
+  --color-product-pink-foreground: var(--product-pink-foreground);
+  --color-product-purple: var(--product-purple);
+  --color-product-purple-tint: var(--product-purple-tint);
+  --color-product-purple-foreground: var(--product-purple-foreground);
+  --color-product-orange: var(--product-orange);
+  --color-product-orange-tint: var(--product-orange-tint);
+  --color-product-orange-foreground: var(--product-orange-foreground);
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  z-index: 50;
+  transform: translateY(-200%);
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (max-height: 700px) {
+  aside {
+    position: static !important;
+  }
+}
