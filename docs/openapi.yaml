@@ -1,0 +1,743 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Food Store Calculator API
+  version: 1.0.0
+  description: |
+    Authoritative catalog, Order pricing, and Order acceptance API for the Food
+    Store Calculator. Creating an Order is a committing operation, not a quote.
+    All monetary values are integer satang and use THB.
+servers:
+  - url: http://localhost:8080
+    description: Local API
+tags:
+  - name: Products
+    description: Fixed Product catalog
+  - name: Orders
+    description: Atomic Order pricing and acceptance
+  - name: Health
+    description: Process and dependency health
+security: []
+paths:
+  /api/v1/products:
+    get:
+      tags: [Products]
+      operationId: listProducts
+      summary: List the Product catalog
+      description: Returns exactly seven Products in stable display order. Prices are authoritative integer satang values.
+      responses:
+        '200':
+          description: Product catalog
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+              examples:
+                catalog:
+                  $ref: '#/components/examples/ProductCatalog'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/orders:
+    post:
+      tags: [Orders]
+      operationId: createOrder
+      summary: Calculate and commit an Order
+      description: |
+        Atomically validates, prices, and persists an Order. Pair Discounts are
+        applied before the Member Discount. A successful response is sent only
+        after commit. Replaying the same Idempotency-Key with the same canonical
+        intent returns the original Order without re-evaluating Red availability.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            examples:
+              orangeMemberOrder:
+                summary: Orange x2 with a Member Card
+                value:
+                  lines:
+                    - product_code: ORANGE
+                      quantity: 2
+                  member_card_number: ' MEMBER-001 '
+              mixedOrder:
+                summary: Multiple Products with independent same-Product pairing
+                value:
+                  lines:
+                    - product_code: GREEN
+                      quantity: 3
+                    - product_code: PINK
+                      quantity: 4
+                    - product_code: BLUE
+                      quantity: 1
+      responses:
+        '201':
+          description: |
+            Newly committed Order or the original response for a same-intent
+            idempotent replay. A replay does not create another Order or re-evaluate
+            Red availability.
+          headers:
+            Location:
+              description: Stable resource identifier for the committed Order. No v1 lookup endpoint is exposed.
+              schema:
+                type: string
+                example: /api/v1/orders/018f4f10-67a4-7ab1-ae12-5ce1d93f6417
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderReceipt'
+              examples:
+                orangeMemberOrder:
+                  $ref: '#/components/examples/OrangeMemberReceipt'
+        '400':
+          description: Malformed JSON, unknown request field, or invalid Idempotency-Key
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - type: object
+                    properties:
+                      code:
+                        type: string
+                        enum: [MALFORMED_JSON, INVALID_IDEMPOTENCY_KEY]
+                    required: [code]
+              examples:
+                malformedJson:
+                  $ref: '#/components/examples/MalformedJsonError'
+                invalidIdempotencyKey:
+                  $ref: '#/components/examples/InvalidIdempotencyKeyError'
+        '409':
+          description: Idempotency mismatch or Red availability conflict
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - type: object
+                    properties:
+                      code:
+                        type: string
+                        enum: [IDEMPOTENCY_CONFLICT, RED_UNAVAILABLE]
+                    required: [code]
+              examples:
+                idempotencyConflict:
+                  $ref: '#/components/examples/IdempotencyConflictError'
+                redUnavailable:
+                  $ref: '#/components/examples/RedUnavailableError'
+        '422':
+          description: Semantically invalid Order
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - type: object
+                    properties:
+                      code:
+                        const: VALIDATION_ERROR
+                    required: [code]
+              examples:
+                invalidQuantity:
+                  $ref: '#/components/examples/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Check process liveness
+      description: Reports process liveness without checking PostgreSQL or other dependencies.
+      responses:
+        '200':
+          description: API process is live
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Check traffic readiness
+      description: Reports whether required dependencies are available and the API can accept application traffic.
+      responses:
+        '200':
+          description: API is ready for traffic
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Unique key for one canonical Order Intent. Reuse the key only when retrying
+        the unchanged intent. UUID format is recommended. The API must not log the raw value.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[ -~]+$'
+      example: 8f121c32-991d-42f4-b83d-349175143bd8
+  headers:
+    RequestId:
+      description: Identifier used to correlate the request without exposing sensitive input.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+      example: req_01J8Y03H9MWK5H69N1S2B0BK3P
+  responses:
+    InternalError:
+      description: Unexpected server failure
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  code:
+                    const: INTERNAL_ERROR
+                required: [code]
+          examples:
+            internalError:
+              $ref: '#/components/examples/InternalError'
+    ServiceUnavailable:
+      description: A required dependency, transaction, or commit operation is temporarily unavailable or failed operationally
+      headers:
+        Retry-After:
+          description: Suggested number of seconds before retrying, when known.
+          schema:
+            type: integer
+            minimum: 1
+          example: 5
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  code:
+                    const: SERVICE_UNAVAILABLE
+                required: [code]
+          examples:
+            serviceUnavailable:
+              $ref: '#/components/examples/ServiceUnavailableError'
+  schemas:
+    ProductCode:
+      type: string
+      enum: [RED, GREEN, BLUE, YELLOW, PINK, PURPLE, ORANGE]
+      description: Stable Product identifier.
+    Currency:
+      type: string
+      const: THB
+    RedProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: RED }
+        name: { const: Red set }
+        unit_price_satang: { const: 5000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 1 }
+        color_token: { const: red }
+    GreenProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: GREEN }
+        name: { const: Green set }
+        unit_price_satang: { const: 4000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 2 }
+        color_token: { const: green }
+    BlueProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: BLUE }
+        name: { const: Blue set }
+        unit_price_satang: { const: 3000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 3 }
+        color_token: { const: blue }
+    YellowProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: YELLOW }
+        name: { const: Yellow set }
+        unit_price_satang: { const: 5000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 4 }
+        color_token: { const: yellow }
+    PinkProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: PINK }
+        name: { const: Pink set }
+        unit_price_satang: { const: 8000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 5 }
+        color_token: { const: pink }
+    PurpleProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: PURPLE }
+        name: { const: Purple set }
+        unit_price_satang: { const: 9000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 6 }
+        color_token: { const: purple }
+    OrangeProduct:
+      type: object
+      additionalProperties: false
+      required: [code, name, unit_price_satang, currency, display_order, color_token]
+      properties:
+        code: { const: ORANGE }
+        name: { const: Orange set }
+        unit_price_satang: { const: 12000 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        display_order: { const: 7 }
+        color_token: { const: orange }
+    ProductListResponse:
+      type: object
+      additionalProperties: false
+      required: [products]
+      properties:
+        products:
+          type: array
+          minItems: 7
+          maxItems: 7
+          prefixItems:
+            - $ref: '#/components/schemas/RedProduct'
+            - $ref: '#/components/schemas/GreenProduct'
+            - $ref: '#/components/schemas/BlueProduct'
+            - $ref: '#/components/schemas/YellowProduct'
+            - $ref: '#/components/schemas/PinkProduct'
+            - $ref: '#/components/schemas/PurpleProduct'
+            - $ref: '#/components/schemas/OrangeProduct'
+          items: false
+          description: Exactly seven Products sorted by ascending `display_order`.
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 7
+          description: One to seven Order Lines. Product codes must be unique; item ordering does not affect canonical intent.
+          items:
+            $ref: '#/components/schemas/CreateOrderItem'
+        member_card_number:
+          type: string
+          description: |
+            Optional Member Card number. Surrounding whitespace is ignored. A non-empty
+            trimmed value qualifies for the Member Discount; whitespace-only is treated
+            as omitted. The raw value is never persisted, returned, or logged.
+    CreateOrderItem:
+      type: object
+      additionalProperties: false
+      required: [product_code, quantity]
+      properties:
+        product_code:
+          $ref: '#/components/schemas/ProductCode'
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+          example: 2
+    OrderReceipt:
+      type: object
+      additionalProperties: false
+      required:
+        - order_id
+        - accepted_at
+        - currency
+        - lines
+        - total_before_discount_satang
+        - pair_discounts
+        - pair_discount_total_satang
+        - member_applied
+        - member_discount_satang
+        - final_total_satang
+      properties:
+        order_id:
+          type: string
+          format: uuid
+          example: 018f4f10-67a4-7ab1-ae12-5ce1d93f6417
+        accepted_at:
+          type: string
+          format: date-time
+          example: '2026-09-21T10:15:30Z'
+        currency:
+          $ref: '#/components/schemas/Currency'
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 7
+          items:
+            $ref: '#/components/schemas/ReceiptLine'
+        total_before_discount_satang:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 24000
+        pair_discounts:
+          type: array
+          maxItems: 3
+          description: One entry for each eligible Product with at least one complete pair, in catalog display order.
+          items:
+            $ref: '#/components/schemas/PairDiscount'
+        pair_discount_total_satang:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 1200
+        member_applied:
+          type: boolean
+          example: true
+        member_discount_satang:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 2280
+        final_total_satang:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 20520
+    ReceiptLine:
+      type: object
+      additionalProperties: false
+      required:
+        - product_code
+        - product_name
+        - quantity
+        - unit_price_satang
+        - line_total_before_discount_satang
+      properties:
+        product_code:
+          $ref: '#/components/schemas/ProductCode'
+        product_name:
+          type: string
+          minLength: 1
+          example: Orange set
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+          example: 2
+        unit_price_satang:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 12000
+        line_total_before_discount_satang:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 24000
+    PairDiscount:
+      type: object
+      additionalProperties: false
+      required:
+        - product_code
+        - pair_count
+        - paired_quantity
+        - discount_rate_basis_points
+        - discount_satang
+      properties:
+        product_code:
+          type: string
+          enum: [GREEN, PINK, ORANGE]
+          example: ORANGE
+        pair_count:
+          type: integer
+          minimum: 1
+          example: 1
+        paired_quantity:
+          type: integer
+          minimum: 2
+          example: 2
+        discount_rate_basis_points:
+          type: integer
+          const: 500
+          description: 500 basis points equals 5%.
+        discount_satang:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 1200
+    FieldErrorCode:
+      type: string
+      enum:
+        - REQUIRED
+        - UNKNOWN_FIELD
+        - INVALID_TYPE
+        - OUT_OF_RANGE
+        - DUPLICATE
+        - UNSUPPORTED
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [field, code, message]
+      properties:
+        field:
+          type: string
+          minLength: 1
+          example: lines[0].quantity
+        code:
+          $ref: '#/components/schemas/FieldErrorCode'
+        message:
+          type: string
+          minLength: 1
+          example: quantity must be an integer from 1 through 999
+    ErrorResponse:
+      oneOf:
+        - $ref: '#/components/schemas/FieldErrorResponse'
+        - $ref: '#/components/schemas/RedUnavailableErrorResponse'
+        - $ref: '#/components/schemas/BasicErrorResponse'
+      discriminator:
+        propertyName: code
+    FieldErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id, field_errors]
+      properties:
+        code:
+          type: string
+          enum: [MALFORMED_JSON, INVALID_IDEMPOTENCY_KEY, VALIDATION_ERROR]
+        message:
+          type: string
+          minLength: 1
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        field_errors:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/FieldError'
+    RedUnavailableErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id, available_at]
+      properties:
+        code:
+          const: RED_UNAVAILABLE
+        message:
+          type: string
+          minLength: 1
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        available_at:
+          type: string
+          format: date-time
+    BasicErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+          enum: [IDEMPOTENCY_CONFLICT, SERVICE_UNAVAILABLE, INTERNAL_ERROR]
+        message:
+          type: string
+          minLength: 1
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+  examples:
+    ProductCatalog:
+      summary: Fixed seven-Product catalog
+      value:
+        products:
+          - code: RED
+            name: Red set
+            unit_price_satang: 5000
+            currency: THB
+            display_order: 1
+            color_token: red
+          - code: GREEN
+            name: Green set
+            unit_price_satang: 4000
+            currency: THB
+            display_order: 2
+            color_token: green
+          - code: BLUE
+            name: Blue set
+            unit_price_satang: 3000
+            currency: THB
+            display_order: 3
+            color_token: blue
+          - code: YELLOW
+            name: Yellow set
+            unit_price_satang: 5000
+            currency: THB
+            display_order: 4
+            color_token: yellow
+          - code: PINK
+            name: Pink set
+            unit_price_satang: 8000
+            currency: THB
+            display_order: 5
+            color_token: pink
+          - code: PURPLE
+            name: Purple set
+            unit_price_satang: 9000
+            currency: THB
+            display_order: 6
+            color_token: purple
+          - code: ORANGE
+            name: Orange set
+            unit_price_satang: 12000
+            currency: THB
+            display_order: 7
+            color_token: orange
+    OrangeMemberReceipt:
+      summary: Committed Orange x2 Order with both discounts
+      value:
+        order_id: 018f4f10-67a4-7ab1-ae12-5ce1d93f6417
+        accepted_at: '2026-09-21T10:15:30Z'
+        currency: THB
+        lines:
+          - product_code: ORANGE
+            product_name: Orange set
+            quantity: 2
+            unit_price_satang: 12000
+            line_total_before_discount_satang: 24000
+        total_before_discount_satang: 24000
+        pair_discounts:
+          - product_code: ORANGE
+            pair_count: 1
+            paired_quantity: 2
+            discount_rate_basis_points: 500
+            discount_satang: 1200
+        pair_discount_total_satang: 1200
+        member_applied: true
+        member_discount_satang: 2280
+        final_total_satang: 20520
+    MalformedJsonError:
+      summary: Unknown field is rejected
+      value:
+        code: MALFORMED_JSON
+        message: Request body contains an unknown field.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P
+        field_errors:
+          - field: price
+            code: UNKNOWN_FIELD
+            message: field is not allowed
+    InvalidIdempotencyKeyError:
+      summary: Required header is missing
+      value:
+        code: INVALID_IDEMPOTENCY_KEY
+        message: Idempotency-Key must contain 1 through 128 printable ASCII characters.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P
+        field_errors:
+          - field: Idempotency-Key
+            code: REQUIRED
+            message: header is required
+    ValidationError:
+      summary: Quantity is outside the accepted range
+      value:
+        code: VALIDATION_ERROR
+        message: The Order contains invalid fields.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P
+        field_errors:
+          - field: lines[0].quantity
+            code: OUT_OF_RANGE
+            message: quantity must be an integer from 1 through 999
+    IdempotencyConflictError:
+      summary: Key reused for a changed Order Intent
+      value:
+        code: IDEMPOTENCY_CONFLICT
+        message: Idempotency-Key was already used for a different Order Intent.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P
+    RedUnavailableError:
+      summary: Red is inside the rolling availability window
+      value:
+        code: RED_UNAVAILABLE
+        message: Red is unavailable until the specified time.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P
+        available_at: '2026-09-21T11:15:30Z'
+    ServiceUnavailableError:
+      summary: Required dependency is unavailable
+      value:
+        code: SERVICE_UNAVAILABLE
+        message: The service is temporarily unavailable.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P
+    InternalError:
+      summary: Arithmetic invariant or unexpected application failure without internal details
+      value:
+        code: INTERNAL_ERROR
+        message: An unexpected error occurred.
+        request_id: req_01J8Y03H9MWK5H69N1S2B0BK3P

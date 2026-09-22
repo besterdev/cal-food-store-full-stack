@@ -1,0 +1,24 @@
+# Local agent work files
+.scratch/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Frontend dependencies and outputs
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+
+# Backend and local infrastructure outputs
+bin/
+tmp/
+*.out
+
+# Editor and operating system files
+.DS_Store
+.idea/
+.vscode/

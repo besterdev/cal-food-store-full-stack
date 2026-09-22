@@ -1,0 +1,3 @@
+# Calculation commits an Order
+
+The Product's Red availability rule must remain correct across concurrent API instances, and a retry must never duplicate an accepted Order. Therefore **Calculate & Place Order** is a placement command rather than a quote: the API calculates the authoritative price, persists the Order and immutable Receipt snapshots, and returns success only after one transaction commits. PostgreSQL is authoritative for idempotency and the rolling Red Availability Window because its unique constraint, database clock, singleton row lock, and rollback semantics serialize competing requests and keep the key binding, Red gate, and Order atomic; browser or process-local state cannot provide those guarantees.
