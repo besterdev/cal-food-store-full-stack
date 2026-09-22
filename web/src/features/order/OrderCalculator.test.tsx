@@ -174,14 +174,80 @@ describe("OrderCalculator", () => {
   });
 
   it("blocks empty submission without calling the API", async () => {
+    const user = userEvent.setup();
     const submitOrder = vi.fn(async () => receipt);
     renderCalculator({ submitOrder });
 
     await screen.findByText("Blue set");
-    expect(
+    await user.click(
       screen.getByRole("button", { name: "Calculate & Place Order" }),
-    ).toBeDisabled();
+    );
+    expect(
+      await screen.findByText(
+        "Add at least one Product before placing the Order.",
+      ),
+    ).toBeInTheDocument();
     expect(submitOrder).not.toHaveBeenCalled();
+  });
+
+  it("preserves the draft on timeout and allows same-key retry", async () => {
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    const submitOrder = vi.fn(async (input: PlaceOrderInput) => {
+      keys.push(input.idempotencyKey);
+      if (keys.length === 1) {
+        throw new OrderError(
+          "timeout",
+          "The Order request timed out. Your draft is preserved — retry with the same intent.",
+          true,
+        );
+      }
+      return receipt;
+    });
+
+    renderCalculator({ submitOrder });
+    await screen.findByText("Blue set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Blue set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    expect(await screen.findByText(/timed out/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "Blue set quantity" }),
+    ).toHaveTextContent("1");
+    await user.click(screen.getByRole("button", { name: "Retry order" }));
+    await waitFor(() => expect(submitOrder).toHaveBeenCalledTimes(2));
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("offers New Order after an idempotency conflict", async () => {
+    const user = userEvent.setup();
+    const submitOrder = vi.fn(async () => {
+      throw new OrderError(
+        "idempotency_conflict",
+        "This Idempotency-Key was already used for a different Order. Edit the draft or start a New Order.",
+        false,
+        "IDEMPOTENCY_CONFLICT",
+      );
+    });
+
+    renderCalculator({ submitOrder });
+    await screen.findByText("Blue set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Blue set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    expect(
+      await screen.findByText(/already used for a different Order/i),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "New Order" }));
+    expect(
+      screen.getByRole("status", { name: "Blue set quantity" }),
+    ).toHaveTextContent("0");
   });
 
   it("renders API Pair Discount rows without local pricing logic", async () => {

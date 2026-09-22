@@ -6,6 +6,7 @@ export type OrderErrorKind =
   | "idempotency_conflict"
   | "red_unavailable"
   | "network"
+  | "timeout"
   | "service"
   | "unknown";
 
@@ -207,6 +208,13 @@ const toOrderError = (error: unknown): OrderError => {
   }
 
   if (!error.response) {
+    if (error.code === "ECONNABORTED") {
+      return new OrderError(
+        "timeout",
+        "The Order request timed out. Your draft is preserved — retry with the same intent.",
+        true,
+      );
+    }
     return new OrderError(
       "network",
       "Check your connection, then retry this Order.",
@@ -248,7 +256,11 @@ const toOrderError = (error: unknown): OrderError => {
       typeof body?.available_at === "string" ? body.available_at : undefined,
     );
   }
-  if (error.response.status >= 500) {
+  if (
+    code === "SERVICE_UNAVAILABLE" ||
+    error.response.status === 503 ||
+    error.response.status >= 500
+  ) {
     return new OrderError(
       "service",
       "The Order service is temporarily unavailable. You can retry this unchanged Order.",

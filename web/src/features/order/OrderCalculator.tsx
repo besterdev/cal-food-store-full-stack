@@ -26,6 +26,8 @@ const createIdempotencyKey = () =>
     ? crypto.randomUUID()
     : `key-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const memberPresent = (value: string) => value.trim() !== "";
+
 interface OrderCalculatorProps {
   loadProducts?: () => Promise<Product[]>;
   submitOrder?: typeof placeOrder;
@@ -37,6 +39,9 @@ export const OrderCalculator = ({
 }: OrderCalculatorProps) => {
   const memberInputId = useId();
   const receiptHeadingRef = useRef<HTMLHeadingElement>(null);
+  const emptyAlertRef = useRef<HTMLDivElement>(null);
+  const errorAlertRef = useRef<HTMLDivElement>(null);
+  const firstProductControlRef = useRef<HTMLButtonElement | null>(null);
   const [quantities, setQuantities] = useState<
     Partial<Record<ProductCode, number>>
   >({});
@@ -44,12 +49,14 @@ export const OrderCalculator = ({
   const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
   const [receipt, setReceipt] = useState<OrderReceipt | null>(null);
   const [emptySubmitAttempted, setEmptySubmitAttempted] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
 
   const mutation = useMutation({
     mutationFn: submitOrder,
     retry: false,
     onSuccess: (nextReceipt) => {
       setReceipt(nextReceipt);
+      setStatusMessage("Order accepted.");
     },
   });
 
@@ -58,6 +65,18 @@ export const OrderCalculator = ({
       receiptHeadingRef.current?.focus();
     }
   }, [receipt]);
+
+  useEffect(() => {
+    if (emptySubmitAttempted) {
+      emptyAlertRef.current?.focus();
+    }
+  }, [emptySubmitAttempted]);
+
+  useEffect(() => {
+    if (mutation.error) {
+      errorAlertRef.current?.focus();
+    }
+  }, [mutation.error]);
 
   const locked = mutation.isPending || receipt !== null;
   const selectedLines = (
@@ -85,8 +104,12 @@ export const OrderCalculator = ({
     setMemberCardNumber("");
     setReceipt(null);
     setEmptySubmitAttempted(false);
+    setStatusMessage("");
     setIdempotencyKey(createIdempotencyKey());
     mutation.reset();
+    queueMicrotask(() => {
+      firstProductControlRef.current?.focus();
+    });
   };
 
   const submitCurrentIntent = () => {
@@ -120,6 +143,7 @@ export const OrderCalculator = ({
   const orderError =
     mutation.error instanceof OrderError ? mutation.error : null;
   const isRedConflict = orderError?.kind === "red_unavailable";
+  const isIdempotencyConflict = orderError?.kind === "idempotency_conflict";
   const hasRedQuantity = (quantities.RED ?? 0) > 0;
 
   return (
@@ -127,6 +151,7 @@ export const OrderCalculator = ({
       <div className="space-y-6 lg:col-span-7">
         <ProductCatalog
           disabled={locked}
+          firstIncreaseRef={firstProductControlRef}
           loadProducts={loadProducts}
           onQuantityChange={changeQuantity}
           quantities={quantities}
@@ -155,10 +180,15 @@ export const OrderCalculator = ({
                 if (locked) {
                   return;
                 }
+                const nextValue = event.target.value;
+                const presenceChanged =
+                  memberPresent(memberCardNumber) !== memberPresent(nextValue);
                 setEmptySubmitAttempted(false);
-                setIdempotencyKey(createIdempotencyKey());
-                mutation.reset();
-                setMemberCardNumber(event.target.value);
+                setMemberCardNumber(nextValue);
+                if (presenceChanged) {
+                  setIdempotencyKey(createIdempotencyKey());
+                  mutation.reset();
+                }
               }}
               type="text"
               value={memberCardNumber}
@@ -168,14 +198,21 @@ export const OrderCalculator = ({
 
         <div className="space-y-3">
           {emptySubmitAttempted ? (
-            <Alert aria-live="assertive" role="alert">
+            <Alert
+              aria-live="assertive"
+              ref={emptyAlertRef}
+              role="alert"
+              tabIndex={-1}
+            >
               Add at least one Product before placing the Order.
             </Alert>
           ) : null}
           {orderError ? (
             <Alert
               aria-live="assertive"
+              ref={errorAlertRef}
               role="alert"
+              tabIndex={-1}
               tone={isRedConflict ? "warning" : "danger"}
             >
               <div className="flex gap-3">
@@ -204,6 +241,12 @@ export const OrderCalculator = ({
                       . Your other Product quantities are preserved.
                     </p>
                   ) : null}
+                  {orderError.kind === "unknown" ? (
+                    <p className="text-muted-foreground mt-1 text-sm">
+                      Your Order draft is unchanged. Edit quantities or start a
+                      New Order if you need a different intent.
+                    </p>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap gap-2">
                     {isRedConflict && hasRedQuantity ? (
                       <Button
@@ -212,6 +255,15 @@ export const OrderCalculator = ({
                         variant="secondary"
                       >
                         Remove Red
+                      </Button>
+                    ) : null}
+                    {isIdempotencyConflict ? (
+                      <Button
+                        onClick={startNewOrder}
+                        type="button"
+                        variant="secondary"
+                      >
+                        New Order
                       </Button>
                     ) : null}
                     {orderError.retryable ? (
@@ -242,7 +294,7 @@ export const OrderCalculator = ({
             <Button
               aria-busy={mutation.isPending}
               className="w-full sm:w-auto"
-              disabled={mutation.isPending || !hasLines}
+              disabled={mutation.isPending}
               onClick={submit}
               type="button"
             >
@@ -258,7 +310,7 @@ export const OrderCalculator = ({
           )}
           {!hasLines && !emptySubmitAttempted ? (
             <p className="text-muted-foreground text-sm">
-              Add at least one Product to enable Calculate & Place Order.
+              Add at least one Product before placing the Order.
             </p>
           ) : null}
         </div>
@@ -381,6 +433,9 @@ export const OrderCalculator = ({
           )}
         </div>
       </aside>
+      <div aria-live="polite" className="sr-only">
+        {statusMessage}
+      </div>
     </div>
   );
 };

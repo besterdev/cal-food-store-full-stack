@@ -11,6 +11,7 @@ export default function HomePage() {
       <main
         className="mx-auto min-h-dvh w-full max-w-[1200px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12"
         id="main-content"
+        tabIndex={-1}
       >
         <header className="mb-8 max-w-2xl lg:mb-10">
           <div className="bg-primary text-primary-foreground mb-4 flex size-12 items-center justify-center rounded-[var(--radius-md)]">

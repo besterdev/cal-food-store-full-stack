@@ -1,5 +1,4 @@
-"use client";
-
+import type { RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -45,7 +44,7 @@ interface ProductCatalogProps {
   quantities: Partial<Record<ProductCode, number>>;
   disabled?: boolean;
   onQuantityChange: (code: ProductCode, delta: -1 | 1) => void;
-  onProductsLoaded?: (products: Product[]) => void;
+  firstIncreaseRef?: RefObject<HTMLButtonElement | null>;
 }
 
 const formatUnitPrice = (product: Product) =>
@@ -74,6 +73,7 @@ interface ProductRowProps {
   product: Product;
   quantity: number;
   disabled: boolean;
+  increaseRef?: RefObject<HTMLButtonElement | null>;
   onDecrease: () => void;
   onIncrease: () => void;
 }
@@ -82,6 +82,7 @@ const ProductRow = ({
   product,
   quantity,
   disabled,
+  increaseRef,
   onDecrease,
   onIncrease,
 }: ProductRowProps) => (
@@ -131,6 +132,7 @@ const ProductRow = ({
         aria-label={`Increase ${product.name} quantity`}
         disabled={disabled || quantity >= 999}
         onClick={onIncrease}
+        ref={increaseRef}
         size="icon"
         type="button"
         variant="secondary"
@@ -146,6 +148,7 @@ export const ProductCatalog = ({
   quantities,
   disabled = false,
   onQuantityChange,
+  firstIncreaseRef,
 }: ProductCatalogProps) => {
   const catalog = useQuery({
     queryKey: productQueryKey,
@@ -220,9 +223,10 @@ export const ProductCatalog = ({
         </div>
       </div>
       <ul className="border-border bg-card overflow-hidden rounded-[var(--radius-lg)] border shadow-[var(--shadow-calculator)]">
-        {catalog.data.map((product) => (
+        {catalog.data.map((product, index) => (
           <ProductRow
             disabled={disabled}
+            increaseRef={index === 0 ? firstIncreaseRef : undefined}
             key={product.code}
             onDecrease={() => onQuantityChange(product.code, -1)}
             onIncrease={() => onQuantityChange(product.code, 1)}
@@ -232,7 +236,8 @@ export const ProductCatalog = ({
         ))}
       </ul>
       <p aria-live="polite" className="sr-only">
-        Product quantities update in the controls above.
+        Loaded {catalog.data.length} Products. Quantities update in the controls
+        above.
       </p>
     </section>
   );

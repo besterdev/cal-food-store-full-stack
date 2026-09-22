@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import { forwardRef, type HTMLAttributes } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -13,13 +13,18 @@ const toneClasses: Record<AlertTone, string> = {
   warning: "border-warning-border bg-warning-surface",
 };
 
-export const Alert = ({ className, tone = "danger", ...props }: AlertProps) => (
-  <div
-    className={cn(
-      "text-foreground rounded-[var(--radius-md)] border p-4",
-      toneClasses[tone],
-      className,
-    )}
-    {...props}
-  />
+export const Alert = forwardRef<HTMLDivElement, AlertProps>(
+  ({ className, tone = "danger", ...props }, ref) => (
+    <div
+      className={cn(
+        "text-foreground rounded-[var(--radius-md)] border p-4 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
+        toneClasses[tone],
+        className,
+      )}
+      ref={ref}
+      {...props}
+    />
+  ),
 );
+
+Alert.displayName = "Alert";
