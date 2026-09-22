@@ -6,14 +6,15 @@ The implementation is delivered in vertical slices tracked by [GitHub Issue #1](
 
 ## Current slice
 
-The runnable Pair Discount slice provides:
+The runnable Member Discount slice provides:
 
-- integer-satang Pair Discount calculation for complete same-Product pairs of Green, Pink, and Orange;
-- receipt rows for each discounted Product plus Pair Discount total and Final Total;
-- Calculate & Place Order UI that explains Pair Discounts from the API without local pricing logic;
-- table-driven pricing tests, HTTP/integration coverage, and frontend receipt behavior tests.
+- optional Member Card input that applies a 10% Member Discount after Pair Discounts with half-up satang rounding;
+- privacy-safe handling that never persists, returns, or logs the raw Member Card number;
+- receipt and UI rows that separately explain Pair Discounts, Member Discount, and Final Total;
+- idempotency-key regeneration when membership changes, with same-key retry for an unchanged intent;
+- pricing, HTTP, PostgreSQL, and frontend coverage for member-only, Pair-plus-member, and whitespace-only cases.
 
-Member Discount flows, Red Availability concurrency, and final browser verification are tracked by the remaining child tickets.
+Red Availability concurrency and final recovery/accessibility verification are tracked by the remaining child tickets.
 
 ## Run the stack
 

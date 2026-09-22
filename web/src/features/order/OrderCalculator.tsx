@@ -310,7 +310,10 @@ export const OrderCalculator = ({
                 ) : null}
                 {receipt.memberApplied ? (
                   <div className="flex justify-between gap-4">
-                    <span>Member discount</span>
+                    <span>
+                      Member discount{" "}
+                      <span className="text-muted-foreground">(10%)</span>
+                    </span>
                     <span className="tabular-nums">
                       −{formatSatang(receipt.memberDiscountSatang)}
                     </span>

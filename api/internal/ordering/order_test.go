@@ -52,3 +52,29 @@ func TestPrepareRejectsDuplicateProducts(t *testing.T) {
 		t.Fatalf("err = %v, want validation error", err)
 	}
 }
+
+func TestPrepareMemberPresenceIgnoresWhitespaceOnlyCards(t *testing.T) {
+	whitespace := "   \t  "
+	absent, err := ordering.Prepare(ordering.Command{
+		IdempotencyKey:   "key",
+		MemberCardNumber: &whitespace,
+		Lines:            []ordering.Line{{ProductCode: "BLUE", Quantity: 1}},
+	})
+	if err != nil {
+		t.Fatalf("Prepare whitespace: %v", err)
+	}
+	if absent.MemberPresent {
+		t.Fatal("whitespace-only Member Card must not claim membership")
+	}
+
+	omitted, err := ordering.Prepare(ordering.Command{
+		IdempotencyKey: "key",
+		Lines:          []ordering.Line{{ProductCode: "BLUE", Quantity: 1}},
+	})
+	if err != nil {
+		t.Fatalf("Prepare omitted: %v", err)
+	}
+	if omitted.IntentDigest != absent.IntentDigest {
+		t.Fatal("whitespace-only and omitted Member Card must share the same intent")
+	}
+}

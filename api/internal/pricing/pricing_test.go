@@ -121,6 +121,17 @@ func TestCalculatePairDiscountCases(t *testing.T) {
 			}},
 			wantPairRowCount: 1,
 		},
+		{
+			name: "member only without pair products",
+			input: pricing.Input{
+				MemberPresent: true,
+				Lines: []pricing.LineInput{
+					{ProductCode: "BLUE", ProductName: "Blue set", DisplayOrder: 3, Quantity: 1, UnitPriceSatang: 3000},
+				},
+			},
+			before: 3000, pairTotal: 0, member: 300, final: 2700,
+			wantPairRowCount: 0,
+		},
 	}
 
 	for _, tc := range cases {
@@ -171,5 +182,25 @@ func TestCalculatePairDiscountRoundsHalfUp(t *testing.T) {
 	}
 	if got.PairDiscountTotalSatang != 1 || got.FinalTotalSatang != 9 {
 		t.Fatalf("got pair=%d final=%d, want pair=1 final=9", got.PairDiscountTotalSatang, got.FinalTotalSatang)
+	}
+}
+
+func TestCalculateMemberDiscountRoundsHalfUpAfterPair(t *testing.T) {
+	// After pair: 15 satang. 10% = 1.5 → rounds to 2.
+	got, err := pricing.Calculate(pricing.Input{
+		MemberPresent: true,
+		Lines: []pricing.LineInput{
+			{ProductCode: "BLUE", ProductName: "Blue set", DisplayOrder: 3, Quantity: 3, UnitPriceSatang: 5},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Calculate: %v", err)
+	}
+	if got.PairDiscountTotalSatang != 0 || got.MemberDiscountSatang != 2 || got.FinalTotalSatang != 13 {
+		t.Fatalf("got pair=%d member=%d final=%d, want member=2 final=13",
+			got.PairDiscountTotalSatang, got.MemberDiscountSatang, got.FinalTotalSatang)
+	}
+	if !got.MemberApplied {
+		t.Fatal("expected member applied")
 	}
 }

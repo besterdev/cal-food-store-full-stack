@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +146,75 @@ func TestCreateOrderExposesPairDiscountBreakdown(t *testing.T) {
 		body.PairDiscounts[0].PairedQuantity != 2 ||
 		body.PairDiscounts[0].DiscountSatang != 1200 {
 		t.Fatalf("pair_discounts = %#v", body.PairDiscounts)
+	}
+}
+
+func TestCreateOrderExposesMemberDiscountAfterPair(t *testing.T) {
+	orderID := uuid.MustParse("018f4f10-67a4-7ab1-ae12-5ce1d93f6417")
+	acceptedAt := time.Date(2026, 9, 21, 10, 15, 30, 0, time.UTC)
+	deps := &dependencies{
+		placeFunc: func(_ context.Context, command ordering.Command) (ordering.Receipt, error) {
+			if command.MemberCardNumber == nil || *command.MemberCardNumber != " MEMBER-001 " {
+				t.Fatalf("member card = %#v", command.MemberCardNumber)
+			}
+			return ordering.Receipt{
+				OrderID:    orderID,
+				AcceptedAt: acceptedAt,
+				Currency:   "THB",
+				Lines: []ordering.ReceiptLine{{
+					ProductCode: "ORANGE", ProductName: "Orange set", Quantity: 2,
+					UnitPriceSatang: 12000, LineTotalBeforeDiscountSatang: 24000,
+				}},
+				TotalBeforeDiscountSatang: 24000,
+				PairDiscounts: []ordering.PairDiscount{{
+					ProductCode: "ORANGE", PairCount: 1, PairedQuantity: 2,
+					DiscountRateBasisPoints: 500, DiscountSatang: 1200,
+				}},
+				PairDiscountTotalSatang: 1200,
+				MemberApplied:           true,
+				MemberDiscountSatang:    2280,
+				FinalTotalSatang:        20520,
+			}, nil
+		},
+	}
+	app := httpapi.New(httpapi.Config{}, deps, deps, deps)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/orders",
+		bytes.NewBufferString(`{"lines":[{"product_code":"ORANGE","quantity":2}],"member_card_number":" MEMBER-001 "}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "key-orange-member")
+
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST orders: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusCreated)
+	}
+
+	raw, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if strings.Contains(string(raw), "MEMBER-001") {
+		t.Fatal("raw Member Card must not appear in the receipt response")
+	}
+
+	var body struct {
+		MemberApplied           bool    `json:"member_applied"`
+		MemberDiscountSatang    float64 `json:"member_discount_satang"`
+		PairDiscountTotalSatang float64 `json:"pair_discount_total_satang"`
+		FinalTotalSatang        float64 `json:"final_total_satang"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	if !body.MemberApplied || body.MemberDiscountSatang != 2280 ||
+		body.PairDiscountTotalSatang != 1200 || body.FinalTotalSatang != 20520 {
+		t.Fatalf("member receipt = %#v", body)
 	}
 }
 

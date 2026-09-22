@@ -336,3 +336,107 @@ func TestPlaceOrderAppliesPairDiscountsIndependently(t *testing.T) {
 		t.Fatalf("HTTP pair_discounts = %#v", httpBody.PairDiscounts)
 	}
 }
+
+func TestPlaceOrderAppliesMemberDiscountWithoutPersistingCard(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; real PostgreSQL integration test skipped")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open admin pool: %v", err)
+	}
+	defer admin.Close()
+
+	schema := "member_test_" + randomHex(t, 8)
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		_, _ = admin.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
+	})
+
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatalf("parse database URL: %v", err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("open isolated pool: %v", err)
+	}
+	defer pool.Close()
+
+	if err := migrations.Apply(ctx, pool); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	secret := " SECRET-CARD-999 "
+	orders := &ordering.Service{Store: storepg.New(pool)}
+	receipt, err := orders.PlaceOrder(ctx, ordering.Command{
+		IdempotencyKey:   "member-orange-key",
+		MemberCardNumber: &secret,
+		Lines:            []ordering.Line{{ProductCode: "ORANGE", Quantity: 2}},
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if !receipt.MemberApplied ||
+		receipt.PairDiscountTotalSatang != 1200 ||
+		receipt.MemberDiscountSatang != 2280 ||
+		receipt.FinalTotalSatang != 20520 {
+		t.Fatalf("member receipt = %#v", receipt)
+	}
+
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatalf("marshal receipt: %v", err)
+	}
+	if strings.Contains(string(encoded), "SECRET-CARD-999") {
+		t.Fatal("raw Member Card leaked into receipt encoding")
+	}
+
+	var (
+		memberApplied  bool
+		memberDiscount int64
+	)
+	if err := pool.QueryRow(ctx, `
+		SELECT member_discount_applied, member_discount_satang
+		FROM orders
+		WHERE id = $1
+	`, receipt.OrderID).Scan(&memberApplied, &memberDiscount); err != nil {
+		t.Fatalf("load persisted order: %v", err)
+	}
+	if !memberApplied || memberDiscount != 2280 {
+		t.Fatalf("persisted member fields = %v %d", memberApplied, memberDiscount)
+	}
+
+	var secretHits int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM order_lines WHERE product_name LIKE '%SECRET-CARD-999%'
+	`).Scan(&secretHits); err != nil {
+		t.Fatalf("scan order lines for leaked card: %v", err)
+	}
+	if secretHits != 0 {
+		t.Fatalf("raw Member Card persisted in order_lines (%d rows)", secretHits)
+	}
+
+	whitespace := "   "
+	noMember, err := orders.PlaceOrder(ctx, ordering.Command{
+		IdempotencyKey:   "member-whitespace-key",
+		MemberCardNumber: &whitespace,
+		Lines:            []ordering.Line{{ProductCode: "BLUE", Quantity: 1}},
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder whitespace: %v", err)
+	}
+	if noMember.MemberApplied || noMember.MemberDiscountSatang != 0 || noMember.FinalTotalSatang != 3000 {
+		t.Fatalf("whitespace member receipt = %#v", noMember)
+	}
+}

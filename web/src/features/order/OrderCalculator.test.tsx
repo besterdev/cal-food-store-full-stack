@@ -239,4 +239,112 @@ describe("OrderCalculator", () => {
       screen.queryByText(/Pair discount · Blue set/),
     ).not.toBeInTheDocument();
   });
+
+  it("applies Member Discount from the API and reuses the key on unchanged retry", async () => {
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    const memberReceipt: OrderReceipt = {
+      orderId: "018f4f10-67a4-7ab1-ae12-5ce1d93f6417",
+      acceptedAt: "2026-09-21T10:15:30Z",
+      currency: "THB",
+      lines: [
+        {
+          productCode: "ORANGE",
+          productName: "Orange set",
+          quantity: 2,
+          unitPriceSatang: 12000,
+          lineTotalBeforeDiscountSatang: 24000,
+        },
+      ],
+      totalBeforeDiscountSatang: 24000,
+      pairDiscounts: [
+        {
+          productCode: "ORANGE",
+          pairCount: 1,
+          pairedQuantity: 2,
+          discountRateBasisPoints: 500,
+          discountSatang: 1200,
+        },
+      ],
+      pairDiscountTotalSatang: 1200,
+      memberApplied: true,
+      memberDiscountSatang: 2280,
+      finalTotalSatang: 20520,
+    };
+    const submitOrder = vi.fn(async (input: PlaceOrderInput) => {
+      keys.push(input.idempotencyKey);
+      if (keys.length === 1) {
+        throw new OrderError(
+          "network",
+          "Check your connection, then retry this Order.",
+          true,
+        );
+      }
+      expect(input.memberCardNumber).toBe("MEMBER-001");
+      return memberReceipt;
+    });
+    renderCalculator({ submitOrder });
+
+    await screen.findByText("Orange set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Orange set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Increase Orange set quantity" }),
+    );
+    await user.type(
+      screen.getByLabelText("Member Card number (optional)"),
+      "MEMBER-001",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Retry order" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry order" }));
+    await waitFor(() => expect(submitOrder).toHaveBeenCalledTimes(2));
+    expect(keys[0]).toBe(keys[1]);
+
+    expect(await screen.findByText(/Member discount/)).toBeInTheDocument();
+    expect(screen.getByText(/\(10%\)/)).toBeInTheDocument();
+    expect(screen.getByText("Pair discount total")).toBeInTheDocument();
+    expect(screen.getAllByText(/THB.*205\.20/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("MEMBER-001")).not.toBeInTheDocument();
+  });
+
+  it("creates a new idempotency key when membership changes after a failed submit", async () => {
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    const submitOrder = vi.fn(async (input: PlaceOrderInput) => {
+      keys.push(input.idempotencyKey);
+      throw new OrderError(
+        "network",
+        "Check your connection, then retry this Order.",
+        true,
+      );
+    });
+    renderCalculator({ submitOrder });
+
+    await screen.findByText("Blue set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Blue set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Retry order" }),
+    ).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Member Card number (optional)"),
+      "CARD",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    await waitFor(() => expect(submitOrder).toHaveBeenCalledTimes(2));
+    expect(keys[0]).not.toBe(keys[1]);
+  });
 });
