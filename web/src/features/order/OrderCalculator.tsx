@@ -273,17 +273,33 @@ export const OrderCalculator = ({
                     {formatSatang(receipt.totalBeforeDiscountSatang)}
                   </span>
                 </div>
-                {receipt.pairDiscounts.map((discount) => (
-                  <div
-                    className="flex justify-between gap-4"
-                    key={discount.productCode}
-                  >
-                    <span>Pair discount ({discount.productCode})</span>
-                    <span className="tabular-nums">
-                      −{formatSatang(discount.discountSatang)}
-                    </span>
-                  </div>
-                ))}
+                {receipt.pairDiscounts.map((discount) => {
+                  const productName =
+                    receipt.lines.find(
+                      (line) => line.productCode === discount.productCode,
+                    )?.productName ?? discount.productCode;
+                  const pairLabel =
+                    discount.pairCount === 1
+                      ? "1 pair"
+                      : `${discount.pairCount} pairs`;
+
+                  return (
+                    <div
+                      className="flex justify-between gap-4"
+                      key={discount.productCode}
+                    >
+                      <span>
+                        Pair discount · {productName}{" "}
+                        <span className="text-muted-foreground">
+                          ({pairLabel})
+                        </span>
+                      </span>
+                      <span className="tabular-nums">
+                        −{formatSatang(discount.discountSatang)}
+                      </span>
+                    </div>
+                  );
+                })}
                 {receipt.pairDiscountTotalSatang > 0 ? (
                   <div className="flex justify-between gap-4">
                     <span>Pair discount total</span>

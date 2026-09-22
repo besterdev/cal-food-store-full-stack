@@ -229,3 +229,110 @@ func TestPlaceOrderPersistsReceiptAndReplaysIdempotently(t *testing.T) {
 		t.Fatalf("POST orders status = %d, want %d", response.StatusCode, http.StatusCreated)
 	}
 }
+
+func TestPlaceOrderAppliesPairDiscountsIndependently(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set; real PostgreSQL integration test skipped")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open admin pool: %v", err)
+	}
+	defer admin.Close()
+
+	schema := "pair_test_" + randomHex(t, 8)
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		_, _ = admin.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
+	})
+
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatalf("parse database URL: %v", err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("open isolated pool: %v", err)
+	}
+	defer pool.Close()
+
+	if err := migrations.Apply(ctx, pool); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	orders := &ordering.Service{Store: storepg.New(pool)}
+	receipt, err := orders.PlaceOrder(ctx, ordering.Command{
+		IdempotencyKey: "pair-mixed-key",
+		Lines: []ordering.Line{
+			{ProductCode: "GREEN", Quantity: 3},
+			{ProductCode: "PINK", Quantity: 4},
+			{ProductCode: "BLUE", Quantity: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PlaceOrder: %v", err)
+	}
+	if receipt.TotalBeforeDiscountSatang != 47000 ||
+		receipt.PairDiscountTotalSatang != 2000 ||
+		receipt.FinalTotalSatang != 45000 {
+		t.Fatalf("totals = %#v", receipt)
+	}
+	if len(receipt.PairDiscounts) != 2 {
+		t.Fatalf("pair discounts = %#v, want GREEN and PINK only", receipt.PairDiscounts)
+	}
+	if receipt.PairDiscounts[0].ProductCode != "GREEN" || receipt.PairDiscounts[0].DiscountSatang != 400 {
+		t.Fatalf("first pair row = %#v", receipt.PairDiscounts[0])
+	}
+	if receipt.PairDiscounts[1].ProductCode != "PINK" || receipt.PairDiscounts[1].DiscountSatang != 1600 {
+		t.Fatalf("second pair row = %#v", receipt.PairDiscounts[1])
+	}
+
+	store := storepg.New(pool)
+	app := httpapi.New(httpapi.Config{}, store, store, orders)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/orders",
+		strings.NewReader(`{"lines":[{"product_code":"ORANGE","quantity":2}]}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "pair-http-orange")
+	response, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST orders: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("POST orders status = %d, want %d", response.StatusCode, http.StatusCreated)
+	}
+	var httpBody struct {
+		FinalTotalSatang        int64 `json:"final_total_satang"`
+		PairDiscountTotalSatang int64 `json:"pair_discount_total_satang"`
+		PairDiscounts           []struct {
+			ProductCode             string `json:"product_code"`
+			DiscountRateBasisPoints int32  `json:"discount_rate_basis_points"`
+			DiscountSatang          int64  `json:"discount_satang"`
+		} `json:"pair_discounts"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&httpBody); err != nil {
+		t.Fatalf("decode POST orders: %v", err)
+	}
+	if httpBody.PairDiscountTotalSatang != 1200 || httpBody.FinalTotalSatang != 22800 {
+		t.Fatalf("HTTP pair totals = %#v", httpBody)
+	}
+	if len(httpBody.PairDiscounts) != 1 ||
+		httpBody.PairDiscounts[0].ProductCode != "ORANGE" ||
+		httpBody.PairDiscounts[0].DiscountRateBasisPoints != 500 ||
+		httpBody.PairDiscounts[0].DiscountSatang != 1200 {
+		t.Fatalf("HTTP pair_discounts = %#v", httpBody.PairDiscounts)
+	}
+}

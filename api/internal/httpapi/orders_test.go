@@ -75,6 +75,78 @@ func TestCreateOrderReturnsCommittedReceipt(t *testing.T) {
 	}
 }
 
+func TestCreateOrderExposesPairDiscountBreakdown(t *testing.T) {
+	orderID := uuid.MustParse("018f4f10-67a4-7ab1-ae12-5ce1d93f6417")
+	acceptedAt := time.Date(2026, 9, 21, 10, 15, 30, 0, time.UTC)
+	deps := &dependencies{
+		placeFunc: func(_ context.Context, command ordering.Command) (ordering.Receipt, error) {
+			if len(command.Lines) != 1 || command.Lines[0].ProductCode != "ORANGE" || command.Lines[0].Quantity != 2 {
+				t.Fatalf("lines = %#v", command.Lines)
+			}
+			return ordering.Receipt{
+				OrderID:    orderID,
+				AcceptedAt: acceptedAt,
+				Currency:   "THB",
+				Lines: []ordering.ReceiptLine{{
+					ProductCode: "ORANGE", ProductName: "Orange set", Quantity: 2,
+					UnitPriceSatang: 12000, LineTotalBeforeDiscountSatang: 24000,
+				}},
+				TotalBeforeDiscountSatang: 24000,
+				PairDiscounts: []ordering.PairDiscount{{
+					ProductCode:             "ORANGE",
+					PairCount:               1,
+					PairedQuantity:          2,
+					DiscountRateBasisPoints: 500,
+					DiscountSatang:          1200,
+				}},
+				PairDiscountTotalSatang: 1200,
+				FinalTotalSatang:        22800,
+			}, nil
+		},
+	}
+	app := httpapi.New(httpapi.Config{}, deps, deps, deps)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/orders",
+		bytes.NewBufferString(`{"lines":[{"product_code":"ORANGE","quantity":2}]}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "key-orange-pair")
+
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST orders: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusCreated)
+	}
+
+	var body struct {
+		FinalTotalSatang        float64 `json:"final_total_satang"`
+		PairDiscountTotalSatang float64 `json:"pair_discount_total_satang"`
+		PairDiscounts           []struct {
+			ProductCode    string  `json:"product_code"`
+			PairCount      float64 `json:"pair_count"`
+			PairedQuantity float64 `json:"paired_quantity"`
+			DiscountSatang float64 `json:"discount_satang"`
+		} `json:"pair_discounts"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatalf("decode receipt: %v", err)
+	}
+	if body.PairDiscountTotalSatang != 1200 || body.FinalTotalSatang != 22800 {
+		t.Fatalf("totals = pair %#v final %#v", body.PairDiscountTotalSatang, body.FinalTotalSatang)
+	}
+	if len(body.PairDiscounts) != 1 ||
+		body.PairDiscounts[0].ProductCode != "ORANGE" ||
+		body.PairDiscounts[0].PairCount != 1 ||
+		body.PairDiscounts[0].PairedQuantity != 2 ||
+		body.PairDiscounts[0].DiscountSatang != 1200 {
+		t.Fatalf("pair_discounts = %#v", body.PairDiscounts)
+	}
+}
+
 func TestCreateOrderRejectsMissingIdempotencyKey(t *testing.T) {
 	deps := &dependencies{}
 	app := httpapi.New(httpapi.Config{}, deps, deps, deps)

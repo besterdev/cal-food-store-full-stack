@@ -183,4 +183,60 @@ describe("OrderCalculator", () => {
     ).toBeDisabled();
     expect(submitOrder).not.toHaveBeenCalled();
   });
+
+  it("renders API Pair Discount rows without local pricing logic", async () => {
+    const user = userEvent.setup();
+    const orangeReceipt: OrderReceipt = {
+      orderId: "018f4f10-67a4-7ab1-ae12-5ce1d93f6417",
+      acceptedAt: "2026-09-21T10:15:30Z",
+      currency: "THB",
+      lines: [
+        {
+          productCode: "ORANGE",
+          productName: "Orange set",
+          quantity: 2,
+          unitPriceSatang: 12000,
+          lineTotalBeforeDiscountSatang: 24000,
+        },
+      ],
+      totalBeforeDiscountSatang: 24000,
+      pairDiscounts: [
+        {
+          productCode: "ORANGE",
+          pairCount: 1,
+          pairedQuantity: 2,
+          discountRateBasisPoints: 500,
+          discountSatang: 1200,
+        },
+      ],
+      pairDiscountTotalSatang: 1200,
+      memberApplied: false,
+      memberDiscountSatang: 0,
+      finalTotalSatang: 22800,
+    };
+    const submitOrder = vi.fn(async () => orangeReceipt);
+    renderCalculator({ submitOrder });
+
+    await screen.findByText("Orange set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Orange set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Increase Orange set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+
+    expect(
+      await screen.findByText(/Pair discount · Orange set/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/\(1 pair\)/)).toBeInTheDocument();
+    expect(screen.getByText("Pair discount total")).toBeInTheDocument();
+    expect(screen.getAllByText(/THB.*12\.00/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/THB.*228\.00/).length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText(/Pair discount · Blue set/),
+    ).not.toBeInTheDocument();
+  });
 });

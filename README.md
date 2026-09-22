@@ -6,16 +6,14 @@ The implementation is delivered in vertical slices tracked by [GitHub Issue #1](
 
 ## Current slice
 
-The runnable Order placement slice provides:
+The runnable Pair Discount slice provides:
 
-- repeatable PostgreSQL migration and exact seven-Product seed;
-- `GET /api/v1/products`, `POST /api/v1/orders`, `GET /health/live`, and `GET /health/ready`;
-- atomic Order acceptance with idempotent replay, immutable price snapshots, and structured errors;
-- a responsive Product Catalog plus Calculate & Place Order, server receipt, New Order, and safe retry;
-- Axios and TanStack React Query with a five-minute catalog freshness window and no automatic Order retries;
-- backend contract tests, real-PostgreSQL idempotency coverage, and frontend behavior tests.
+- integer-satang Pair Discount calculation for complete same-Product pairs of Green, Pink, and Orange;
+- receipt rows for each discounted Product plus Pair Discount total and Final Total;
+- Calculate & Place Order UI that explains Pair Discounts from the API without local pricing logic;
+- table-driven pricing tests, HTTP/integration coverage, and frontend receipt behavior tests.
 
-Pair Discount presentation polish, Member Discount flows, Red Availability concurrency, and final browser verification are tracked by the remaining child tickets and are not represented as complete until those slices land.
+Member Discount flows, Red Availability concurrency, and final browser verification are tracked by the remaining child tickets.
 
 ## Run the stack
 
