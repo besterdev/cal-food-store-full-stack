@@ -29,15 +29,40 @@ WEB_IMAGE="${IMAGE_BASE}/web:${GIT_SHA}"
 echo "==> Project ${PROJECT_ID} region ${REGION}"
 
 gcloud config set project "${PROJECT_ID}" >/dev/null
-gcloud services enable \
-  run.googleapis.com \
-  sqladmin.googleapis.com \
-  artifactregistry.googleapis.com \
-  cloudbuild.googleapis.com \
-  secretmanager.googleapis.com \
-  compute.googleapis.com \
-  iam.googleapis.com \
-  --project="${PROJECT_ID}"
+
+# Enable APIs only when provisioning; CI deploy SA may lack log-stream viewer rights.
+if [[ "${SKIP_ENABLE_APIS:-}" != "1" ]]; then
+  gcloud services enable \
+    run.googleapis.com \
+    sqladmin.googleapis.com \
+    artifactregistry.googleapis.com \
+    cloudbuild.googleapis.com \
+    secretmanager.googleapis.com \
+    compute.googleapis.com \
+    iam.googleapis.com \
+    --project="${PROJECT_ID}"
+fi
+
+submit_and_wait() {
+  local build_id status
+  build_id="$(gcloud builds submit "$@" --async --format='value(id)' --project="${PROJECT_ID}")"
+  echo "Cloud Build ${build_id} started"
+  while true; do
+    status="$(gcloud builds describe "${build_id}" --project="${PROJECT_ID}" --format='value(status)')"
+    case "${status}" in
+      SUCCESS)
+        echo "Cloud Build ${build_id} succeeded"
+        return 0
+        ;;
+      FAILURE|TIMEOUT|CANCELLED|EXPIRED|INTERNAL_ERROR)
+        echo "Cloud Build ${build_id} ended with status ${status}" >&2
+        gcloud builds log "${build_id}" --project="${PROJECT_ID}" 2>/dev/null | tail -n 80 >&2 || true
+        return 1
+        ;;
+    esac
+    sleep 5
+  done
+}
 
 if ! gcloud artifacts repositories describe "${REPO}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   echo "==> Creating Artifact Registry ${REPO}"
@@ -95,26 +120,26 @@ fi
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/cloudsql.client" \
-  --condition=None \
-  --quiet >/dev/null || true
+# One-time IAM grants; skip on CI where the deploy SA cannot edit project IAM.
+if [[ "${SKIP_IAM_BINDINGS:-}" != "1" ]]; then
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${RUNTIME_SA}" \
+    --role="roles/cloudsql.client" \
+    --condition=None \
+    --quiet >/dev/null || true
 
-gcloud secrets add-iam-policy-binding "${DB_URL_SECRET}" \
-  --member="serviceAccount:${RUNTIME_SA}" \
-  --role="roles/secretmanager.secretAccessor" \
-  --project="${PROJECT_ID}" \
-  --quiet >/dev/null || true
+  gcloud secrets add-iam-policy-binding "${DB_URL_SECRET}" \
+    --member="serviceAccount:${RUNTIME_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="${PROJECT_ID}" \
+    --quiet >/dev/null || true
+fi
 
 EXISTING_WEB_URL="$(gcloud run services describe "${WEB_SERVICE}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(status.url)' 2>/dev/null || true)"
 INITIAL_CORS="${EXISTING_WEB_URL:-http://localhost:3000}"
 
 echo "==> Building API image ${API_IMAGE}"
-gcloud builds submit "${ROOT}/api" \
-  --tag="${API_IMAGE}" \
-  --project="${PROJECT_ID}" \
-  --quiet
+submit_and_wait "${ROOT}/api" --tag="${API_IMAGE}"
 
 echo "==> Deploying API"
 gcloud run deploy "${API_SERVICE}" \
@@ -181,10 +206,7 @@ images:
 EOF
 
 echo "==> Building web image ${WEB_IMAGE}"
-gcloud builds submit "${ROOT}/web" \
-  --config="${WEB_BUILD_CONFIG}" \
-  --project="${PROJECT_ID}" \
-  --quiet
+submit_and_wait "${ROOT}/web" --config="${WEB_BUILD_CONFIG}"
 rm -f "${WEB_BUILD_CONFIG}"
 
 echo "==> Deploying web"

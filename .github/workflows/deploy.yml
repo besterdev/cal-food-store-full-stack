@@ -42,4 +42,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Deploy
+        env:
+          SKIP_ENABLE_APIS: "1"
+          SKIP_IAM_BINDINGS: "1"
         run: ./scripts/gcp-deploy.sh

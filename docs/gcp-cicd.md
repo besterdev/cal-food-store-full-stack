@@ -41,7 +41,8 @@ for ROLE in \
   roles/artifactregistry.writer \
   roles/secretmanager.admin \
   roles/cloudsql.admin \
-  roles/storage.admin
+  roles/storage.admin \
+  roles/serviceusage.serviceUsageAdmin
 do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${SA_EMAIL}" \
