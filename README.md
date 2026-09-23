@@ -13,8 +13,7 @@ Full-stack Order calculator for a fixed seven-Product catalog.
 | Products | [https://food-store-api-lfcng66dzq-as.a.run.app/api/v1/products](https://food-store-api-lfcng66dzq-as.a.run.app/api/v1/products) |
 | Health   | [https://food-store-api-lfcng66dzq-as.a.run.app/health/ready](https://food-store-api-lfcng66dzq-as.a.run.app/health/ready)       |
 
-
-
+GCP project: `project-e18e387f-34bb-43fb-9db` (Cloud Run · `asia-southeast1`)
 
 ## What it does
 
