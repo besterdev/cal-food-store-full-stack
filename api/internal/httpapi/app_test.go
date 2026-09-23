@@ -35,6 +35,7 @@ type dependencies struct {
 	panicList  bool
 	listFunc   func(context.Context) ([]catalog.Product, error)
 	placeFunc  func(context.Context, ordering.Command) (ordering.Receipt, error)
+	resetFunc  func(context.Context) error
 }
 
 func (d *dependencies) ListProducts(ctx context.Context) ([]catalog.Product, error) {
@@ -57,6 +58,13 @@ func (d *dependencies) PlaceOrder(ctx context.Context, command ordering.Command)
 		return d.placeFunc(ctx, command)
 	}
 	return ordering.Receipt{}, ordering.ErrServiceUnavailable
+}
+
+func (d *dependencies) ResetRedAvailability(ctx context.Context) error {
+	if d.resetFunc != nil {
+		return d.resetFunc(ctx)
+	}
+	return nil
 }
 
 func TestUnexpectedPanicReturnsSafeInternalError(t *testing.T) {

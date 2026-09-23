@@ -37,6 +37,10 @@ type orderPlacer interface {
 	PlaceOrder(context.Context, ordering.Command) (ordering.Receipt, error)
 }
 
+type redGateResetter interface {
+	ResetRedAvailability(context.Context) error
+}
+
 // Config contains HTTP Adapter configuration.
 type Config struct {
 	AllowedOrigins   []string
@@ -44,6 +48,8 @@ type Config struct {
 	Logger           *slog.Logger
 	RequestTimeout   time.Duration
 	ReadinessTimeout time.Duration
+	// RedGateResetter enables POST /api/v1/red-availability/reset for demos.
+	RedGateResetter redGateResetter
 }
 
 type productListResponse struct {
@@ -154,8 +160,22 @@ func New(config Config, products catalog.Lister, readiness readinessChecker, ord
 	app.Post("/api/v1/orders", func(c *fiber.Ctx) error {
 		return handleCreateOrder(c, config.RequestTimeout, orders)
 	})
+	if config.RedGateResetter != nil {
+		app.Post("/api/v1/red-availability/reset", func(c *fiber.Ctx) error {
+			return handleResetRedAvailability(c, config.RequestTimeout, config.RedGateResetter)
+		})
+	}
 
 	return app
+}
+
+func handleResetRedAvailability(c *fiber.Ctx, timeout time.Duration, resetter redGateResetter) error {
+	ctx, cancel := context.WithTimeout(c.UserContext(), timeout)
+	defer cancel()
+	if err := resetter.ResetRedAvailability(ctx); err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "The service is temporarily unavailable.", nil, "")
+	}
+	return c.SendStatus(http.StatusNoContent)
 }
 
 func handleCreateOrder(c *fiber.Ctx, timeout time.Duration, orders orderPlacer) error {

@@ -36,9 +36,10 @@ func main() {
 	store := storepg.New(pool)
 	orders := &ordering.Service{Store: store}
 	app := httpapi.New(httpapi.Config{
-		AllowedOrigins: allowedOrigins(),
-		BaseContext:    ctx,
-		Logger:         logger,
+		AllowedOrigins:  allowedOrigins(),
+		BaseContext:     ctx,
+		Logger:          logger,
+		RedGateResetter: store,
 	}, store, store, orders)
 	address := envOrDefault("API_ADDRESS", "")
 	if address == "" {

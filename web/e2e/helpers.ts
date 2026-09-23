@@ -70,6 +70,7 @@ export const ensureRedWindowBlocked = async (
   request: APIRequestContext,
   key: string,
 ) => {
+  await request.post(`${apiBaseURL}/api/v1/red-availability/reset`);
   const response = await request.post(`${apiBaseURL}/api/v1/orders`, {
     data: {
       lines: [{ product_code: "RED", quantity: 1 }],

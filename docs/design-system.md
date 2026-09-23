@@ -205,7 +205,7 @@ Use `min-h-dvh`, never disable browser zoom, and prevent horizontal scrolling at
 
 - Validation errors use `role="alert"`, field association, and focus the first invalid field after the error summary is announced.
 - Network and service errors preserve the draft and offer **Retry order**. Manual retry of an unchanged intent reuses the same idempotency key.
-- Red conflict uses warning styling, names Red explicitly, formats `available_at` in the Customer's local time with timezone context, preserves the draft, and offers a clear path to remove Red or retry later.
+- Red conflict uses warning styling, names Red explicitly, formats `available_at` in the Customer's local time with timezone context, preserves the draft, and offers a clear path to remove Red, reset the demo Red window, or retry later.
 - Idempotency conflict states that the previous key belongs to a different Order intent and prompts a safe new submission path without retry loops.
 - Toasts are not the sole carrier of persistent errors. If used for transient confirmation, they use `aria-live="polite"` and never steal focus.
 

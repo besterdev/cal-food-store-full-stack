@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -356,6 +357,50 @@ func TestCreateOrderMapsIdempotencyConflict(t *testing.T) {
 		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusConflict)
 	}
 	assertBasicError(t, res, "IDEMPOTENCY_CONFLICT", "Idempotency-Key was already used for a different Order Intent.")
+}
+
+func TestResetRedAvailabilityReturnsNoContent(t *testing.T) {
+	resetCalls := 0
+	deps := &dependencies{
+		resetFunc: func(context.Context) error {
+			resetCalls++
+			return nil
+		},
+	}
+	app := httpapi.New(httpapi.Config{RedGateResetter: deps}, deps, deps, deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/red-availability/reset", nil)
+
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST red-availability/reset: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusNoContent)
+	}
+	if resetCalls != 1 {
+		t.Fatalf("resetCalls = %d, want 1", resetCalls)
+	}
+}
+
+func TestResetRedAvailabilityMapsServiceUnavailable(t *testing.T) {
+	deps := &dependencies{
+		resetFunc: func(context.Context) error {
+			return errors.New("gate missing")
+		},
+	}
+	app := httpapi.New(httpapi.Config{RedGateResetter: deps}, deps, deps, deps)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/red-availability/reset", nil)
+
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("POST red-availability/reset: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusServiceUnavailable)
+	}
+	assertBasicError(t, res, "SERVICE_UNAVAILABLE", "The service is temporarily unavailable.")
 }
 
 func assertFieldError(t *testing.T, res *http.Response, code string) {

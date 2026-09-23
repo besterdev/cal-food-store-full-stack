@@ -17,6 +17,7 @@ import type {
   ProductCode,
   ProductColorToken,
 } from "@/features/order/catalog";
+import { ProductIcon } from "@/features/order/product-visuals";
 import { formatSatang } from "@/features/order/place-order";
 
 const productQueryKey = ["products"] as const;
@@ -28,15 +29,6 @@ const productAccentClasses: Record<ProductColorToken, string> = {
   pink: "bg-product-pink-tint text-product-pink-foreground",
   purple: "bg-product-purple-tint text-product-purple-foreground",
   orange: "bg-product-orange-tint text-product-orange-foreground",
-};
-const productSwatchClasses: Record<ProductColorToken, string> = {
-  red: "bg-product-red",
-  green: "bg-product-green",
-  blue: "bg-product-blue",
-  yellow: "bg-product-yellow",
-  pink: "bg-product-pink",
-  purple: "bg-product-purple",
-  orange: "bg-product-orange",
 };
 
 interface ProductCatalogProps {
@@ -89,10 +81,7 @@ const ProductRow = ({
   <li className="border-border grid min-h-24 grid-cols-1 gap-4 border-b p-4 last:border-b-0 sm:grid-cols-[1fr_auto] sm:items-center sm:p-5">
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          aria-hidden="true"
-          className={`size-3 rounded-full ${productSwatchClasses[product.colorToken]}`}
-        />
+        <ProductIcon colorToken={product.colorToken} />
         <h3 className="text-foreground font-semibold">{product.name}</h3>
         <span
           className={`rounded-[var(--radius-sm)] px-2 py-0.5 font-mono text-xs font-semibold tracking-wide ${productAccentClasses[product.colorToken]}`}

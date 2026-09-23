@@ -163,6 +163,26 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/red-availability/reset:
+    post:
+      tags: [Orders]
+      operationId: resetRedAvailability
+      summary: Reset the Red Availability Window
+      description: |
+        Demo and operations helper. Restores the singleton Red gate to immediate
+        availability (`available_at = -infinity`) without deleting accepted Orders.
+        Intended for local demos and shared environments where waiting a full
+        60-minute window is impractical.
+      responses:
+        '204':
+          description: Red is immediately available again
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /health/live:
     get:
       tags: [Health]

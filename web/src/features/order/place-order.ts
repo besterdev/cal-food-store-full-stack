@@ -298,6 +298,18 @@ export const placeOrder = async (
   }
 };
 
+/** Demo helper: restores Red to immediate availability (does not delete Orders). */
+export const resetRedAvailability = async (): Promise<void> => {
+  try {
+    await apiClient.post("/api/v1/red-availability/reset");
+  } catch (error) {
+    if (error instanceof OrderError) {
+      throw error;
+    }
+    throw toOrderError(error);
+  }
+};
+
 export const formatSatang = (satang: number, currency: "THB" = "THB") =>
   new Intl.NumberFormat("en-TH", {
     style: "currency",

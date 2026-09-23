@@ -57,11 +57,12 @@ Browser → Next.js → Go Fiber (/api/v1) → PostgreSQL
 ## API
 
 
-| Method | Path               | Notes                      |
-| ------ | ------------------ | -------------------------- |
-| `GET`  | `/api/v1/products` | Seven seeded Products      |
-| `POST` | `/api/v1/orders`   | Requires `Idempotency-Key` |
-| `GET`  | `/health/ready`    | Readiness                  |
+| Method | Path                             | Notes                                      |
+| ------ | -------------------------------- | ------------------------------------------ |
+| `GET`  | `/api/v1/products`               | Seven seeded Products                     |
+| `POST` | `/api/v1/orders`                 | Requires `Idempotency-Key`                |
+| `POST` | `/api/v1/red-availability/reset` | Demo helper: clear the 60-minute Red gate |
+| `GET`  | `/health/ready`                  | Readiness                                 |
 
 
 Errors use stable codes (`VALIDATION_ERROR`, `RED_UNAVAILABLE`, …). Only `RED_UNAVAILABLE` includes `available_at`.

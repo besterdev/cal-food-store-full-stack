@@ -127,8 +127,11 @@ The public endpoints are:
 
 - `GET /api/v1/products`
 - `POST /api/v1/orders`
+- `POST /api/v1/red-availability/reset`
 - `GET /health/live`
 - `GET /health/ready`
+
+`POST /api/v1/red-availability/reset` is a demo/ops helper that restores the Red Availability Window to immediate availability without deleting Orders. It is not part of the Customer Order flow.
 
 The API must accept and return JSON for versioned application endpoints. Unknown JSON fields are rejected. Stable machine-readable error codes and user-safe messages are required.
 
