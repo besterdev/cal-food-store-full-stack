@@ -1,180 +1,103 @@
 # Food Store Calculator
 
-Full-stack calculator for a fixed seven-Product food-store catalog. The application uses a Next.js frontend, a Go Fiber API, and PostgreSQL as the authoritative catalog and pricing source.
+Full-stack Order calculator for a fixed seven-Product catalog.  
+**Next.js** · **Go Fiber** · **PostgreSQL** — the API is the only pricing authority.
 
-Parent tracker: [GitHub Issue #1](https://github.com/besterdev/cal-food-store-full-stack/issues/1). The checked-in [requirements](./docs/requirements.md) and [OpenAPI contract](./docs/openapi.yaml) govern detailed behavior.
+## Live demo
 
-## Current status
+| | URL |
+| --- | --- |
+| Web | https://food-store-web-lfcng66dzq-as.a.run.app |
+| API | https://food-store-api-lfcng66dzq-as.a.run.app |
+| Products | https://food-store-api-lfcng66dzq-as.a.run.app/api/v1/products |
+| Health | https://food-store-api-lfcng66dzq-as.a.run.app/health/ready |
 
-The calculator is feature-complete for v1 Order placement:
+GCP project: `project-e18e387f-34bb-43fb-9db` (Cloud Run · `asia-southeast1`)
 
-- seven-Product catalog with API-authoritative prices in integer satang;
-- Pair Discounts (Green, Pink, Orange) and 10% Member Discount after pairs;
-- idempotent `POST /api/v1/orders` with `Idempotency-Key`;
-- store-wide rolling 60-minute Red Availability Window;
-- draft-preserving recovery for validation, Red conflict, network/timeout, service, and idempotency failures;
-- Playwright coverage (mobile + desktop) with axe-core WCAG 2.2 AA scans and screenshot evidence under [`docs/verification/screenshots/`](./docs/verification/screenshots/).
+## What it does
 
-## Run the stack
+- Seven Products with prices in integer **satang**
+- **Pair Discount** 5% on Orange / Pink / Green pairs
+- **Member Discount** 10% after Pair discounts
+- Idempotent `POST /api/v1/orders` (`Idempotency-Key`)
+- **Red Availability**: one Red Order per rolling 60 minutes store-wide
+- Draft-preserving recovery (validation, Red conflict, network, service errors)
 
-Prerequisite: Docker with Compose v2.
+Specs: [requirements](./docs/requirements.md) · [OpenAPI](./docs/openapi.yaml) · [system design](./docs/system-design.md)
+
+## Quick start (local)
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+| Service | URL |
+| --- | --- |
+| Web | http://localhost:3000 |
+| Products | http://localhost:8080/api/v1/products |
+| Health | http://localhost:8080/health/ready |
 
-- Web: <http://localhost:3000>
-- Product API: <http://localhost:8080/api/v1/products>
-- API readiness: <http://localhost:8080/health/ready>
-
-Stop with `docker compose down`. The development database uses the named `food-store-postgres` volume.
-
-## Deploy to GCP (Cloud Run)
-
-Script: [`scripts/gcp-deploy.sh`](./scripts/gcp-deploy.sh). Requires `gcloud` authenticated to a billed project.
-
-```bash
-gcloud config set project YOUR_PROJECT_ID
-./scripts/gcp-deploy.sh
-```
-
-Defaults (`asia-southeast1`):
-
-- Artifact Registry `food-store`
-- Cloud SQL Postgres 17 `food-store-pg` (`db-f1-micro`)
-- Cloud Run `food-store-api`, `food-store-web`
-- Cloud Run Job `food-store-migrate`
-- Secret Manager `food-store-database-url`
-
-Override with `GCP_PROJECT_ID`, `GCP_REGION`, or the other env vars documented in the script.
-
-Current production URLs (project `project-e18e387f-34bb-43fb-9db`):
-
-- Web: <https://food-store-web-lfcng66dzq-as.a.run.app>
-- API: <https://food-store-api-lfcng66dzq-as.a.run.app>
-- Products: <https://food-store-api-lfcng66dzq-as.a.run.app/api/v1/products>
-- Ready: <https://food-store-api-lfcng66dzq-as.a.run.app/health/ready>
-
-Cloud SQL incurs ongoing cost even when idle; delete the instance when you no longer need the demo.
-
-## CI/CD (GitHub Actions)
-
-- **CI** (`.github/workflows/ci.yml`): format, lint, typecheck, frontend tests/build, Go vet/test/race with Postgres, OpenAPI lint — on every PR and push to `main`.
-- **Deploy** (`.github/workflows/deploy.yml`): after CI succeeds on `main` (or manual dispatch), runs `scripts/gcp-deploy.sh` to Cloud Run.
-
-Setup for deploy secrets/variables: [`docs/gcp-cicd.md`](./docs/gcp-cicd.md).
+Stop: `docker compose down`
 
 ## Architecture
 
 ```text
-Browser -> Next.js client subtree -> Go Fiber API (/api/v1) -> PostgreSQL
+Browser → Next.js → Go Fiber (/api/v1) → PostgreSQL
 ```
 
-- The API is the only pricing authority. The frontend collects an Order draft and renders the returned Pricing Breakdown.
-- Handlers → Order service → pure pricing module → PostgreSQL adapter.
-- Money is always integer satang (`int64`). Floating-point monetary math is forbidden.
-- PostgreSQL owns Products, accepted Orders, idempotency keys, and the Red Availability Window.
+- Handlers → Order service → pure pricing module → Postgres adapter
+- Frontend never recalculates discounts; it renders the API Pricing Breakdown
+- PostgreSQL owns catalog, Orders, idempotency, and the Red gate
 
-See [system design](./docs/system-design.md), [design system](./docs/design-system.md), [API spec](./docs/api-spec.md), and [CONTEXT](./CONTEXT.md).
-
-## API contract
-
-Machine-readable contract: [`docs/openapi.yaml`](./docs/openapi.yaml).
+## API
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `GET` | `/api/v1/products` | Seven seeded Products in display order |
-| `POST` | `/api/v1/orders` | Requires `Idempotency-Key`; never accepts client prices |
-| `GET` | `/health/ready` | Dependency readiness |
+| `GET` | `/api/v1/products` | Seven seeded Products |
+| `POST` | `/api/v1/orders` | Requires `Idempotency-Key` |
+| `GET` | `/health/ready` | Readiness |
 
-Stable error codes include `VALIDATION_ERROR`, `IDEMPOTENCY_CONFLICT`, `RED_UNAVAILABLE`, `SERVICE_UNAVAILABLE`, and `INTERNAL_ERROR`. Only `RED_UNAVAILABLE` includes `available_at`.
+Errors use stable codes (`VALIDATION_ERROR`, `RED_UNAVAILABLE`, …). Only `RED_UNAVAILABLE` includes `available_at`.
 
-Lint the OpenAPI document:
-
-```bash
-npx --yes @redocly/cli@1 lint docs/openapi.yaml
-```
-
-## Migrations
-
-Versioned SQL lives in `api/migrations/`. Compose runs the `migrate` service against PostgreSQL before the API starts.
+## Checks
 
 ```bash
+# Frontend
+cd web && pnpm install
+pnpm run format:check && pnpm run lint && pnpm run typecheck
+pnpm test && pnpm run build
+
+# Backend
 cd api
-DATABASE_URL='postgres://food_store:food_store@localhost:5432/food_store?sslmode=disable' go run ./cmd/migrate
-```
+gofmt -l . && go vet ./...
+go test ./... && go test -race ./...
 
-Integration tests create isolated schemas and apply the same migrations when `TEST_DATABASE_URL` is set.
-
-## Business rules (v1)
-
-- Catalog: Red, Green, Blue, Yellow, Pink, Purple, Orange with fixed unit prices.
-- Pair Discount: 5% off each complete pair of Green, Pink, or Orange (integer half-up satang).
-- Member Discount: 10% after Pair Discounts when a trimmed Member Card is present; the raw card number is never persisted, returned, or logged.
-- Red Availability: after an accepted Red-containing Order, another new Red Order is blocked until PostgreSQL `available_at`; equality at the boundary succeeds; non-Red Orders are unaffected; idempotent Red replay does not extend the window.
-
-## Assumptions
-
-- Local development uses Compose-published ports `3000` (web) and `8080` (API).
-- Playwright expects the real stack at those ports unless `PLAYWRIGHT_BASE_URL` / `PLAYWRIGHT_API_BASE_URL` override them.
-- Automated axe scans are necessary but not sufficient for full WCAG conformance; keyboard/zoom/contrast/screen-reader sign-off remains part of release review.
-- Manual VoiceOver and forced-colors checks are documented in [`docs/test-plan.md`](./docs/test-plan.md) and should be signed off before production handoff.
-
-## Run checks locally
-
-### Frontend
-
-```bash
-cd web
-pnpm install
-pnpm run format:check
-pnpm run lint
-pnpm run typecheck
-pnpm test
-pnpm run build
-```
-
-### Backend
-
-```bash
-cd api
-gofmt -l .
-go vet ./...
-go test ./...
-go test -race ./...
-```
-
-PostgreSQL integration and Red concurrency tests run when `TEST_DATABASE_URL` points at an isolated database (Compose `db` service is fine for local agents).
-
-### Playwright (real stack)
-
-With `docker compose up` healthy:
-
-```bash
-cd web
-pnpm exec playwright install chromium
-pnpm run test:e2e
-```
-
-Evidence screenshots are written to `docs/verification/screenshots/`. HTML report: `pnpm run test:e2e:report`.
-
-### OpenAPI
-
-```bash
+# OpenAPI
 npx --yes @redocly/cli@1 lint docs/openapi.yaml
+
+# E2E (stack must be up)
+cd web && pnpm exec playwright install chromium && pnpm run test:e2e
 ```
 
-## Verification evidence
+Set `TEST_DATABASE_URL` for Postgres integration / Red concurrency tests.
 
-| Artifact | Meaning |
+## CI/CD & deploy
+
+- **CI** — format, lint, tests, race, OpenAPI on every PR / `main`
+- **Deploy** — Cloud Run after CI on `main` ([`scripts/gcp-deploy.sh`](./scripts/gcp-deploy.sh))
+
+Setup: [`docs/gcp-cicd.md`](./docs/gcp-cicd.md)
+
+> Cloud SQL bills while running — delete the instance when the demo is done.
+
+## Docs
+
+| Doc | Purpose |
 | --- | --- |
-| `docs/verification/screenshots/desktop-editing.png` | Desktop draft |
-| `docs/verification/screenshots/desktop-receipt.png` | Pair + Member receipt |
-| `docs/verification/screenshots/mobile-editing.png` | Mobile draft |
-| `docs/verification/screenshots/mobile-receipt.png` | Mobile receipt |
-| `docs/verification/screenshots/*-red-conflict.png` | Red recovery |
-| Playwright HTML report | Flow + axe results |
-
-Treat screenshot updates as intentional design changes reviewed against [`docs/design-system.md`](./docs/design-system.md).
+| [CONTEXT](./CONTEXT.md) | Domain terms |
+| [requirements](./docs/requirements.md) | Business rules |
+| [api-spec](./docs/api-spec.md) | HTTP behavior |
+| [openapi.yaml](./docs/openapi.yaml) | Contract |
+| [test-plan](./docs/test-plan.md) | Verification |
+| [design-system](./docs/design-system.md) | UI |
+| [screenshots](./docs/verification/screenshots/) | Visual evidence |
