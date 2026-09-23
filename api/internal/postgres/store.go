@@ -65,6 +65,23 @@ func (s *Store) ListProducts(ctx context.Context) ([]catalog.Product, error) {
 	return products, nil
 }
 
+// ResetRedAvailability restores the Red gate to immediate availability.
+// Demo/ops helper for the rolling 60-minute Red window; does not delete Orders.
+func (s *Store) ResetRedAvailability(ctx context.Context) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE red_availability_gate
+		SET available_at = '-infinity'::timestamptz
+		WHERE product_code = 'RED'
+	`)
+	if err != nil {
+		return fmt.Errorf("reset red availability: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("reset red availability: expected 1 gate row, got %d", tag.RowsAffected())
+	}
+	return nil
+}
+
 // Ready verifies PostgreSQL connectivity and the latest required migration.
 func (s *Store) Ready(ctx context.Context) error {
 	if err := s.pool.Ping(ctx); err != nil {

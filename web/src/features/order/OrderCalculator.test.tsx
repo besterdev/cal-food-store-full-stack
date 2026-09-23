@@ -93,6 +93,7 @@ const receipt: OrderReceipt = {
 
 const renderCalculator = (options?: {
   submitOrder?: (input: PlaceOrderInput) => Promise<OrderReceipt>;
+  resetRedWindow?: () => Promise<void>;
 }) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -102,6 +103,7 @@ const renderCalculator = (options?: {
     <QueryClientProvider client={queryClient}>
       <OrderCalculator
         loadProducts={async () => products}
+        resetRedWindow={options?.resetRedWindow}
         submitOrder={options?.submitOrder}
       />
     </QueryClientProvider>,
@@ -298,7 +300,7 @@ describe("OrderCalculator", () => {
       await screen.findByText(/Pair discount · Orange set/),
     ).toBeInTheDocument();
     expect(screen.getByText(/\(1 pair\)/)).toBeInTheDocument();
-    expect(screen.getByText("Pair discount total")).toBeInTheDocument();
+    expect(screen.queryByText("Pair discount total")).not.toBeInTheDocument();
     expect(screen.getAllByText(/THB.*12\.00/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/THB.*228\.00/).length).toBeGreaterThan(0);
     expect(
@@ -374,7 +376,7 @@ describe("OrderCalculator", () => {
 
     expect(await screen.findByText(/Member discount/)).toBeInTheDocument();
     expect(screen.getByText(/\(10%\)/)).toBeInTheDocument();
-    expect(screen.getByText("Pair discount total")).toBeInTheDocument();
+    expect(screen.queryByText("Pair discount total")).not.toBeInTheDocument();
     expect(screen.getAllByText(/THB.*205\.20/).length).toBeGreaterThan(0);
     expect(screen.queryByText("MEMBER-001")).not.toBeInTheDocument();
   });
@@ -449,6 +451,12 @@ describe("OrderCalculator", () => {
     expect(screen.getByText(/available again at/i)).toBeInTheDocument();
     expect(screen.getByText(/22 ก\.ย\. 2569 18:15 น\./)).toBeInTheDocument();
     expect(
+      screen.getByRole("button", { name: "Reset Red window" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/at most one Red-containing Order store-wide/i),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("status", { name: "Red set quantity" }),
     ).toHaveTextContent("1");
     expect(
@@ -468,5 +476,42 @@ describe("OrderCalculator", () => {
     );
     expect(await screen.findByText(/Order 018f4f10/)).toBeInTheDocument();
     expect(submitOrder).toHaveBeenCalledTimes(2);
+  });
+
+  it("resets the Red availability window from a Red conflict", async () => {
+    const user = userEvent.setup();
+    const resetRedWindow = vi.fn(async () => undefined);
+    const submitOrder = vi
+      .fn(async () => receipt)
+      .mockRejectedValueOnce(
+        new OrderError(
+          "red_unavailable",
+          "Red is unavailable until the specified time.",
+          false,
+          "RED_UNAVAILABLE",
+          "2026-09-22T11:15:30Z",
+        ),
+      );
+
+    renderCalculator({ submitOrder, resetRedWindow });
+    await screen.findByText("Red set");
+    await user.click(
+      screen.getByRole("button", { name: "Increase Red set quantity" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Calculate & Place Order" }),
+    );
+    expect(
+      await screen.findByText("Red is temporarily unavailable"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset Red window" }));
+    await waitFor(() => expect(resetRedWindow).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByText("Red is temporarily unavailable"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Red availability window reset/i),
+    ).toBeInTheDocument();
   });
 });

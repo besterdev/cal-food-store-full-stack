@@ -182,6 +182,43 @@ func TestNonRedOrdersSucceedWhileRedBlocked(t *testing.T) {
 	}
 }
 
+func TestResetRedAvailabilityAllowsAnotherRedOrder(t *testing.T) {
+	pool, ctx, cancel := openIsolatedOrderSchema(t, "red_reset")
+	defer cancel()
+
+	store := storepg.New(pool)
+	service := &ordering.Service{Store: store}
+	if _, err := service.PlaceOrder(ctx, ordering.Command{
+		IdempotencyKey: "red-before-reset",
+		Lines:          []ordering.Line{{ProductCode: "RED", Quantity: 1}},
+	}); err != nil {
+		t.Fatalf("first Red Order: %v", err)
+	}
+
+	_, err := service.PlaceOrder(ctx, ordering.Command{
+		IdempotencyKey: "red-blocked",
+		Lines:          []ordering.Line{{ProductCode: "RED", Quantity: 1}},
+	})
+	if !errors.Is(err, ordering.ErrRedUnavailable) {
+		t.Fatalf("blocked Red Order err = %v, want RED_UNAVAILABLE", err)
+	}
+
+	if err := store.ResetRedAvailability(ctx); err != nil {
+		t.Fatalf("reset red availability: %v", err)
+	}
+
+	receipt, err := service.PlaceOrder(ctx, ordering.Command{
+		IdempotencyKey: "red-after-reset",
+		Lines:          []ordering.Line{{ProductCode: "RED", Quantity: 1}},
+	})
+	if err != nil {
+		t.Fatalf("Red Order after reset: %v", err)
+	}
+	if receipt.FinalTotalSatang != 5000 {
+		t.Fatalf("red total = %d, want 5000", receipt.FinalTotalSatang)
+	}
+}
+
 func TestRedOrderSucceedsExactlyAtAvailableAtBoundary(t *testing.T) {
 	pool, ctx, cancel := openIsolatedOrderSchema(t, "red_boundary")
 	defer cancel()

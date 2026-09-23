@@ -14,11 +14,13 @@ import { Button } from "@/components/ui/Button";
 import { listProducts } from "@/features/order/catalog";
 import type { Product, ProductCode } from "@/features/order/catalog";
 import { ProductCatalog } from "@/features/order/ProductCatalog";
+import { ProductIcon } from "@/features/order/product-visuals";
 import {
   formatSatang,
   formatThaiDateTime,
   OrderError,
   placeOrder,
+  resetRedAvailability,
   type OrderReceipt,
 } from "@/features/order/place-order";
 
@@ -32,11 +34,13 @@ const memberPresent = (value: string) => value.trim() !== "";
 interface OrderCalculatorProps {
   loadProducts?: () => Promise<Product[]>;
   submitOrder?: typeof placeOrder;
+  resetRedWindow?: typeof resetRedAvailability;
 }
 
 export const OrderCalculator = ({
   loadProducts = listProducts,
   submitOrder = placeOrder,
+  resetRedWindow = resetRedAvailability,
 }: OrderCalculatorProps) => {
   const memberInputId = useId();
   const receiptHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -58,6 +62,17 @@ export const OrderCalculator = ({
     onSuccess: (nextReceipt) => {
       setReceipt(nextReceipt);
       setStatusMessage("Order accepted.");
+    },
+  });
+
+  const resetRedMutation = useMutation({
+    mutationFn: resetRedWindow,
+    retry: false,
+    onSuccess: () => {
+      mutation.reset();
+      setStatusMessage(
+        "Red availability window reset. You can place a Red Order again.",
+      );
     },
   });
 
@@ -251,6 +266,26 @@ export const OrderCalculator = ({
                         Remove Red
                       </Button>
                     ) : null}
+                    {isRedConflict ? (
+                      <Button
+                        aria-busy={resetRedMutation.isPending}
+                        disabled={resetRedMutation.isPending}
+                        onClick={() => resetRedMutation.mutate()}
+                        type="button"
+                        variant="outline"
+                      >
+                        {resetRedMutation.isPending ? (
+                          <LoaderCircle
+                            aria-hidden="true"
+                            className="animate-spin"
+                            size={18}
+                          />
+                        ) : (
+                          <RefreshCw aria-hidden="true" size={18} />
+                        )}
+                        Reset Red window
+                      </Button>
+                    ) : null}
                     {isIdempotencyConflict ? (
                       <Button
                         onClick={startNewOrder}
@@ -271,6 +306,18 @@ export const OrderCalculator = ({
                       </Button>
                     ) : null}
                   </div>
+                  {isRedConflict ? (
+                    <p className="text-muted-foreground mt-3 text-xs">
+                      At most one Red-containing Order store-wide within a
+                      rolling 60-minute window. Reset clears the gate for demos
+                      without deleting Orders.
+                    </p>
+                  ) : null}
+                  {resetRedMutation.isError ? (
+                    <p className="text-destructive mt-2 text-sm">
+                      Could not reset the Red window. Try again in a moment.
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </Alert>
@@ -325,29 +372,32 @@ export const OrderCalculator = ({
             Pricing Breakdown
           </h2>
           {receipt ? (
-            <div className="mt-6 space-y-4 font-mono text-sm">
-              <p className="text-muted-foreground text-xs tracking-wide uppercase">
+            <div className="mt-6 space-y-4 text-sm">
+              <p className="text-muted-foreground font-mono text-xs tracking-wide uppercase">
                 Order {receipt.orderId}
               </p>
-              <ul className="space-y-2">
+              <ul className="space-y-2 font-sans text-sm">
                 {receipt.lines.map((line) => (
                   <li
                     className="flex items-start justify-between gap-4"
                     key={line.productCode}
                   >
-                    <span>
-                      {line.productName} × {line.quantity}
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ProductIcon productCode={line.productCode} size="sm" />
+                      <span>
+                        {line.productName} × {line.quantity}
+                      </span>
                     </span>
-                    <span className="tabular-nums">
+                    <span className="font-mono tabular-nums">
                       {formatSatang(line.lineTotalBeforeDiscountSatang)}
                     </span>
                   </li>
                 ))}
               </ul>
-              <div className="border-border space-y-2 border-t border-dashed pt-4">
+              <div className="border-border space-y-2 border-t border-dashed pt-4 font-sans text-sm">
                 <div className="flex justify-between gap-4">
                   <span>Total before discount</span>
-                  <span className="tabular-nums">
+                  <span className="font-mono tabular-nums">
                     {formatSatang(receipt.totalBeforeDiscountSatang)}
                   </span>
                 </div>
@@ -366,22 +416,29 @@ export const OrderCalculator = ({
                       className="flex justify-between gap-4"
                       key={discount.productCode}
                     >
-                      <span>
-                        Pair discount · {productName}{" "}
-                        <span className="text-muted-foreground">
-                          ({pairLabel})
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ProductIcon
+                          productCode={discount.productCode}
+                          size="sm"
+                        />
+                        <span>
+                          Pair discount · {productName}{" "}
+                          <span className="text-muted-foreground">
+                            ({pairLabel})
+                          </span>
                         </span>
                       </span>
-                      <span className="tabular-nums">
+                      <span className="text-product-green font-mono tabular-nums">
                         −{formatSatang(discount.discountSatang)}
                       </span>
                     </div>
                   );
                 })}
-                {receipt.pairDiscountTotalSatang > 0 ? (
+                {receipt.pairDiscountTotalSatang > 0 &&
+                receipt.pairDiscounts.length > 1 ? (
                   <div className="flex justify-between gap-4">
                     <span>Pair discount total</span>
-                    <span className="tabular-nums">
+                    <span className="text-product-green font-mono tabular-nums">
                       −{formatSatang(receipt.pairDiscountTotalSatang)}
                     </span>
                   </div>
@@ -392,7 +449,7 @@ export const OrderCalculator = ({
                       Member discount{" "}
                       <span className="text-muted-foreground">(10%)</span>
                     </span>
-                    <span className="tabular-nums">
+                    <span className="text-product-green font-mono tabular-nums">
                       −{formatSatang(receipt.memberDiscountSatang)}
                     </span>
                   </div>
@@ -402,16 +459,12 @@ export const OrderCalculator = ({
                 <span className="font-sans text-base font-semibold">
                   Final Total
                 </span>
-                <span className="text-2xl font-semibold tabular-nums">
+                <span className="font-mono text-2xl font-semibold tabular-nums">
                   {formatSatang(receipt.finalTotalSatang)}
                 </span>
               </div>
               <p className="text-muted-foreground font-sans text-xs">
-                Accepted{" "}
-                {new Intl.DateTimeFormat(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                }).format(new Date(receipt.acceptedAt))}
+                Accepted {formatThaiDateTime(receipt.acceptedAt)} น.
               </p>
             </div>
           ) : (

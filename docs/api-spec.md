@@ -80,6 +80,8 @@ Every response includes `X-Request-ID`. The value is used for support and log co
 
 `GET /health/ready` checks dependencies required to accept application traffic. It returns `200` while ready and the standard `503 SERVICE_UNAVAILABLE` response when a required dependency is unavailable.
 
+`POST /api/v1/red-availability/reset` is a demo/ops helper that restores the Red Availability Window to immediate availability (`available_at = -infinity`) without deleting Orders. It returns `204` on success.
+
 ## Contract maintenance
 
 - Change `openapi.yaml` before intentionally changing an HTTP request, response, validation rule, or stable error code.
