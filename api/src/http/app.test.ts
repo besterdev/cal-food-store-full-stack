@@ -165,4 +165,17 @@ describeIntegration("HTTP order contract", () => {
 
     expect(response.body.code).toBe("INVALID_IDEMPOTENCY_KEY");
   });
+
+  it("returns a request_id when JSON is malformed", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .set("Content-Type", "application/json")
+      .send("{")
+      .expect(400);
+
+    expect(response.body.code).toBe("MALFORMED_JSON");
+    expect(response.body.request_id).toMatch(/^req_/);
+    expect(response.headers["x-request-id"]).toMatch(/^req_/);
+  });
 });
