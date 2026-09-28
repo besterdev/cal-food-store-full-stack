@@ -4,10 +4,10 @@ import { Pool } from "pg";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { createApp } from "../http/app.js";
-import { OrderService } from "../ordering/service.js";
-import { applyMigrations } from "../postgres/migrate.js";
-import { PostgresStore } from "../postgres/store.js";
+import { createApp } from "../app.js";
+import { OrderService } from "../modules/ordering/service.js";
+import { applyMigrations } from "../infrastructure/postgres/migrate.js";
+import { PostgresStore } from "../infrastructure/postgres/store.js";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "";
@@ -24,10 +24,10 @@ describeIntegration("HTTP order contract", () => {
     await applyMigrations(pool);
     store = new PostgresStore(pool);
     app = createApp({
-      listProducts: () => store.listProducts(),
-      ready: () => store.ready(),
+      listProducts: (signal) => store.listProducts(signal),
+      ready: (signal) => store.ready(signal),
       orders: new OrderService(store),
-      resetRedAvailability: () => store.resetRedAvailability(),
+      resetRedAvailability: (signal) => store.resetRedAvailability(signal),
       allowedOrigins: ["http://localhost:3000"],
     });
   });
@@ -37,7 +37,9 @@ describeIntegration("HTTP order contract", () => {
   });
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE order_lines, order_idempotency, orders RESTART IDENTITY");
+    await pool.query(
+      "TRUNCATE order_lines, order_idempotency, orders RESTART IDENTITY",
+    );
     await store.resetRedAvailability();
   });
 

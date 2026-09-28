@@ -1,10 +1,13 @@
 import { Pool } from "pg";
 
-import { applyMigrations } from "./postgres/migrate.js";
+import { loadConfig } from "./config/index.js";
+import { applyMigrations } from "./infrastructure/postgres/migrate.js";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  console.error("DATABASE_URL is required");
+let databaseUrl: string;
+try {
+  databaseUrl = loadConfig().databaseUrl;
+} catch (err) {
+  console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 }
 

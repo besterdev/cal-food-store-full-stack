@@ -7,6 +7,7 @@ import {
   prepare,
   receiptFromBreakdown,
   RedConflictError,
+  ServiceUnavailableError,
   ValidationError,
   type OrderStore,
   type PlacementTx,
@@ -17,10 +18,18 @@ import {
 export class OrderService {
   constructor(private readonly store: OrderStore) {}
 
-  async placeOrder(command: PlaceOrderCommand): Promise<Receipt> {
+  async placeOrder(
+    command: PlaceOrderCommand,
+    signal?: AbortSignal,
+  ): Promise<Receipt> {
+    if (signal?.aborted) {
+      throw new ServiceUnavailableError("request timed out", signal.reason);
+    }
+
     const prepared = prepare(command);
-    const tx = await this.store.beginPlacement();
+    const tx = await this.store.beginPlacement(signal);
     try {
+      throwIfAborted(signal);
       const orderId = uuidv7();
       const claimed = await tx.claimIdempotency(prepared, orderId);
       if (!claimed) {
@@ -70,15 +79,23 @@ export class OrderService {
         });
       }
 
+      throwIfAborted(signal);
       const acceptedAt = await applyRedGate(tx, containsRed);
       await tx.insertAcceptedOrder(orderId, acceptedAt, breakdown);
       await tx.commit();
-      return receiptFromBreakdown(orderId, new Date(acceptedAt.toISOString()), breakdown);
+      return receiptFromBreakdown(
+        orderId,
+        new Date(acceptedAt.toISOString()),
+        breakdown,
+      );
     } catch (err) {
       try {
         await tx.rollback();
       } catch {
         // ignore rollback errors after a prior failure
+      }
+      if (signal?.aborted) {
+        throw new ServiceUnavailableError("request timed out", err);
       }
       throw err;
     }
@@ -100,6 +117,12 @@ const applyRedGate = async (
   }
   await tx.advanceRedGate(now);
   return now;
+};
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw new ServiceUnavailableError("request timed out", signal.reason);
+  }
 };
 
 export const wrapUnavailable = asServiceUnavailable;

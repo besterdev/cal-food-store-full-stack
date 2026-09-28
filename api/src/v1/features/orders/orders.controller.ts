@@ -1,22 +1,24 @@
-import { Router } from "express";
+import type { Request, Response } from "express";
 
-import type { OrderService } from "../../ordering/service.js";
-import { writeError, writeOrderError } from "../errors.js";
+import type { OrderService } from "../../../modules/ordering/service.js";
+import { writeError, writeOrderError } from "../../../middleware/http-errors.js";
+import { runWithTimeout } from "../../../utils/timeout.js";
 import {
   decodeCreateOrderRequest,
   toPlaceOrderCommand,
   toReceiptWire,
   validIdempotencyKeyHeader,
-} from "../order-wire.js";
-import { withTimeout } from "../timeout.js";
+} from "./orders.wire.js";
 
-export const createOrdersRouter = (deps: {
+export interface OrdersControllerDeps {
   orders: OrderService;
   requestTimeoutMs: number;
-}): Router => {
-  const router = Router();
+}
 
-  router.post("/api/v1/orders", async (req, res) => {
+export class OrdersController {
+  constructor(private readonly deps: OrdersControllerDeps) {}
+
+  create = async (req: Request, res: Response): Promise<void> => {
     const key = req.header("Idempotency-Key") ?? "";
     if (!validIdempotencyKeyHeader(key)) {
       writeError(
@@ -42,16 +44,18 @@ export const createOrdersRouter = (deps: {
     }
 
     try {
-      const receipt = await withTimeout(
-        deps.orders.placeOrder(toPlaceOrderCommand(key, decode.request)),
-        deps.requestTimeoutMs,
+      const receipt = await runWithTimeout(
+        this.deps.requestTimeoutMs,
+        (signal) =>
+          this.deps.orders.placeOrder(
+            toPlaceOrderCommand(key, decode.request),
+            signal,
+          ),
       );
       res.setHeader("Location", `/api/v1/orders/${receipt.orderId}`);
       res.status(201).json(toReceiptWire(receipt));
     } catch (err) {
       writeOrderError(res, err);
     }
-  });
-
-  return router;
-};
+  };
+}

@@ -109,7 +109,7 @@ export interface PlacementTx {
 }
 
 export interface OrderStore {
-  beginPlacement(): Promise<PlacementTx>;
+  beginPlacement(signal?: AbortSignal): Promise<PlacementTx>;
 }
 
 const SUPPORTED_PRODUCTS = new Set([

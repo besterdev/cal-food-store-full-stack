@@ -5,7 +5,7 @@ import type {
   Response,
 } from "express";
 
-import { writeError } from "../errors.js";
+import { writeError } from "./http-errors.js";
 
 export const jsonSyntaxErrorHandler: ErrorRequestHandler = (
   err,

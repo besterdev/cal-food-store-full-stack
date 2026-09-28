@@ -10,6 +10,7 @@ const migrationsDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
+  "..",
   "migrations",
 );
 

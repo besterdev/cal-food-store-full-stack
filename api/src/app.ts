@@ -1,7 +1,7 @@
 import express, { type Express } from "express";
 
-import type { Product } from "../catalog/product.js";
-import type { OrderService } from "../ordering/service.js";
+import type { Product } from "./modules/catalog/product.js";
+import type { OrderService } from "./modules/ordering/service.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import {
   jsonSyntaxErrorHandler,
@@ -12,25 +12,27 @@ import {
   requestLogMiddleware,
   type RequestLogger,
 } from "./middleware/request-log.js";
-import { createHealthRouter } from "./routes/health.js";
-import { createOrdersRouter } from "./routes/orders.js";
-import { createProductsRouter } from "./routes/products.js";
-import { createRedAvailabilityRouter } from "./routes/red-availability.js";
+import { securityMiddleware } from "./middleware/security.js";
+import { createHealthRoutes } from "./v1/features/health/health.routes.js";
+import { createV1Router } from "./v1/index.js";
 
 const MAX_ORDER_BODY_BYTES = 16 * 1024;
 
 export interface AppDeps {
-  listProducts: () => Promise<Product[]>;
-  ready: () => Promise<void>;
+  listProducts: (signal?: AbortSignal) => Promise<Product[]>;
+  ready: (signal?: AbortSignal) => Promise<void>;
   orders: OrderService;
-  resetRedAvailability?: () => Promise<void>;
+  resetRedAvailability?: (signal?: AbortSignal) => Promise<void>;
   allowedOrigins: string[];
   requestTimeoutMs?: number;
   readinessTimeoutMs?: number;
   logger?: RequestLogger;
 }
 
-/** Compose Express middleware and versioned routes around domain deps. */
+/**
+ * Composition root: middleware → health → /api/v1 features → centralized errors.
+ * Structure follows feature-based MVC with API versioning.
+ */
 export const createApp = (deps: AppDeps): Express => {
   const requestTimeoutMs = deps.requestTimeoutMs ?? 3000;
   const readinessTimeoutMs = deps.readinessTimeoutMs ?? 2000;
@@ -39,38 +41,29 @@ export const createApp = (deps: AppDeps): Express => {
   const app = express();
   app.disable("x-powered-by");
 
-  // Request ID must run before body parsing so parse errors still carry request_id.
+  app.use(securityMiddleware);
+  // Request ID before body parsing so malformed JSON still carries request_id.
   app.use(requestIdMiddleware);
   app.use(requestLogMiddleware(logger));
   app.use(corsMiddleware(deps.allowedOrigins));
   app.use(express.json({ limit: MAX_ORDER_BODY_BYTES }));
 
   app.use(
-    createHealthRouter({
+    createHealthRoutes({
       ready: deps.ready,
       readinessTimeoutMs,
     }),
   );
-  app.use(
-    createProductsRouter({
-      listProducts: deps.listProducts,
-      requestTimeoutMs,
-    }),
-  );
-  app.use(
-    createOrdersRouter({
-      orders: deps.orders,
-      requestTimeoutMs,
-    }),
-  );
-  if (deps.resetRedAvailability) {
-    app.use(
-      createRedAvailabilityRouter({
-        resetRedAvailability: deps.resetRedAvailability,
-        requestTimeoutMs,
-      }),
-    );
-  }
+
+  const v1Deps = {
+    listProducts: deps.listProducts,
+    orders: deps.orders,
+    requestTimeoutMs,
+    ...(deps.resetRedAvailability
+      ? { resetRedAvailability: deps.resetRedAvailability }
+      : {}),
+  };
+  app.use("/api/v1", createV1Router(v1Deps));
 
   app.use(jsonSyntaxErrorHandler);
   app.use(unexpectedErrorHandler);

@@ -44,11 +44,12 @@ Do not introduce Zustand, React Hook Form, Zod, Motion, or another state/form/an
 ### Backend
 
 - **Language:** TypeScript on Node.js 22+
-- **HTTP framework:** Express
+- **HTTP framework:** Express (feature-based MVC under `src/v1/features/`)
 - **Database:** PostgreSQL
-- **Database access:** Parameterized SQL through a narrow PostgreSQL adapter (`pg`)
+- **Database access:** Parameterized SQL through a narrow PostgreSQL adapter (`pg`) under `src/infrastructure/postgres/`
 - **Migrations:** Versioned, repeatable migration workflow
 - **Tests:** Vitest table-driven unit tests, HTTP contract tests, and PostgreSQL integration tests
+- **Config / middleware:** `src/config/`, shared `src/middleware/` (request-id, CORS, Helmet, centralized errors)
 
 ## Implementation Skill Workflow
 

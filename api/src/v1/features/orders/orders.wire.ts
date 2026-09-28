@@ -1,4 +1,4 @@
-import type { FieldError, PlaceOrderCommand, Receipt } from "../ordering/order.js";
+import type { FieldError, PlaceOrderCommand, Receipt } from "../../../modules/ordering/order.js";
 
 interface CreateOrderLineWire {
   product_code: string;

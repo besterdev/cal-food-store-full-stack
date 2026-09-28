@@ -7,7 +7,7 @@ import {
   ServiceUnavailableError,
   ValidationError,
   type FieldError,
-} from "../ordering/order.js";
+} from "../modules/ordering/order.js";
 
 interface ErrorBody {
   code: string;
