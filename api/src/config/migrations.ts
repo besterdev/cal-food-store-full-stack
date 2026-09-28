@@ -2,13 +2,12 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 
 export const LATEST_VERSION = 2;
 
 const migrationsDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  "..",
   "..",
   "..",
   "migrations",
@@ -80,5 +79,3 @@ const migrationVersion = (name: string): number => {
   }
   return version;
 };
-
-export type MigrationClient = Pool | PoolClient;

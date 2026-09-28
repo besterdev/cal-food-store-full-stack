@@ -49,6 +49,7 @@ Browser → Next.js → Express (/api/v1) → PostgreSQL
 ```
 
 - Handlers → Order service → pure pricing module → Postgres adapter
+- API uses feature-based MVC: `api/src/<feature>/` holds `*.model.ts` (SQL), `*.controller.ts`, `*.routes.ts`, and an optional service ([ADR 0003](./docs/adr/0003-express-feature-mvc-layout.md))
 - Frontend never recalculates discounts; it renders the API Pricing Breakdown
 - PostgreSQL owns catalog, Orders, idempotency, and the Red gate
 
@@ -78,7 +79,6 @@ pnpm test && pnpm run build
 # Backend
 cd api && pnpm install
 pnpm run typecheck && pnpm test && pnpm run build
-go test ./... && go test -race ./...
 
 # OpenAPI
 npx --yes @redocly/cli@1 lint docs/openapi.yaml
@@ -91,7 +91,7 @@ Set `TEST_DATABASE_URL` for Postgres integration / Red concurrency tests.
 
 ## CI/CD & deploy
 
-- **CI** — format, lint, tests, race, OpenAPI on every PR / `main`
+- **CI** — format, lint, typecheck, tests (with Postgres), OpenAPI on every PR / `main`
 - **Deploy** — Cloud Run after CI on `main` ([`scripts/gcp-deploy.sh`](./scripts/gcp-deploy.sh))
 
 Setup: [`docs/gcp-cicd.md`](./docs/gcp-cicd.md)
@@ -114,6 +114,8 @@ Setup: [`docs/gcp-cicd.md`](./docs/gcp-cicd.md)
 | 🎨  | [design system](./docs/design-system.md)                 | UI language                   |
 | ✅   | [test plan](./docs/test-plan.md)                         | Verification strategy         |
 | 📌  | [ADR 0001](./docs/adr/0001-calculation-commits-order.md) | Calculate commits Order       |
+| 📌  | [ADR 0002](./docs/adr/0002-express-backend.md)           | Express backend               |
+| 📌  | [ADR 0003](./docs/adr/0003-express-feature-mvc-layout.md) | API feature-based MVC layout |
 | ☁️  | [GCP CI/CD](./docs/gcp-cicd.md)                          | Cloud Run + GitHub Actions    |
 | 🖼️ | [screenshots](./docs/verification/screenshots/)          | Visual evidence               |
 | 🧪  | [verification](./docs/verification/README.md)            | Screenshot regeneration notes |

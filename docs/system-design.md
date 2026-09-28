@@ -27,7 +27,7 @@ The browser calls the Express API directly. Next.js Route Handlers do not proxy 
 
 - **Calculate & Place Order is a command, not a quote.** A successful `POST /api/v1/orders` both calculates and commits one Order before returning `201 Created`.
 - **The API is the only pricing authority.** The browser sends Product codes, quantities, and an optional Member Card number; it never sends an authoritative price or discount.
-- **Money is integer satang.** All application and persistence amounts use checked `int64`/`bigint` arithmetic; floating-point money is forbidden.
+- **Money is integer satang.** All application amounts use safe-integer-checked TypeScript arithmetic and persistence uses PostgreSQL `bigint` (OpenAPI `int64`); floating-point money is forbidden.
 - **A Receipt is immutable.** Accepted Order Lines retain Product name, display order, Unit Price, quantity, and discount snapshots even if the Product Catalog changes later.
 - **A successful response follows commit.** No Order is reported as accepted until its database transaction commits.
 - **Red is store-wide.** A Red Order advances one shared Red gate for exactly 60 minutes. At `available_at`, a new Red Order is eligible.
@@ -281,7 +281,7 @@ Reading `clock_timestamp()` after acquiring the row lock means a request that wa
 - If `database_now >= available_at`, it uses that same value as the Red Order's `placed_at`, updates `available_at = database_now + interval '60 minutes'`, then inserts the Order and Order Lines. A non-Red Order reads PostgreSQL time immediately before its insert.
 - It commits the key claim, Red gate update, Order, and snapshots together.
 
-The singleton row lock serializes Red Orders across goroutines and API instances. For different idempotency keys, at most one simultaneous Red Order sees the gate available. For the same key, the idempotency claim serializes first; followers replay the winner without consuming another window. Any error after the gate update rolls it back with the Order.
+`OrderModel.claimRedGate()` performs these steps and returns either the accepted time or the current `available_at`; the Order service only maps a failed claim to a Red conflict. The singleton row lock serializes Red Orders across concurrent requests and API instances. For different idempotency keys, at most one simultaneous Red Order sees the gate available. For the same key, the idempotency claim serializes first; followers replay the winner without consuming another window. Any error after the gate update rolls it back with the Order.
 
 ## Failure Semantics and Recovery
 
@@ -339,7 +339,7 @@ Tests use a separate Compose project, PostgreSQL container, database name, crede
 - Fixed-label counters cover accepted Orders, idempotent replays, Red conflicts, idempotency conflicts, validation failures, and transaction failures.
 - Histograms cover HTTP duration and Order transaction duration. Labels remain low-cardinality; request IDs, Order references, keys, and Member data are never metric labels.
 - Database errors are wrapped with operation context for internal logs and mapped to user-safe public errors.
-- Graceful shutdown stops accepting new work, propagates context cancellation, and lets in-flight transactions commit or roll back within a bounded deadline.
+- Graceful shutdown stops accepting new work, closes the PostgreSQL pool after the HTTP server drains, and lets in-flight transactions commit or roll back within a bounded deadline.
 
 Distributed tracing infrastructure is out of scope for v1; request IDs provide end-to-end correlation across the web and API logs.
 
@@ -357,6 +357,6 @@ The highest and primary Seam is `POST /api/v1/orders`; tests assert observable s
 | Frontend component tests | Order Calculator Module with controlled HTTP responses | Loading/empty/failure states, quantity zero floor, submission lock, preserved drafts, Receipt lock, New Order, manual retry key reuse, and new key after edits |
 | Playwright and accessibility | Real browser against the real local stack | Normal Order, combined Pair and Member Discounts, Red recovery, keyboard flow, accessible names, announcements, contrast, 200% zoom, axe checks, and mobile/desktop screenshots |
 
-Backend verification runs `go test -race ./...`. Frontend verification runs formatting, linting, type checking, unit/component tests, and the production build. Full-stack verification starts from a clean test database, applies every migration, and runs contract, integration, and Playwright suites against the real processes.
+Backend verification runs `pnpm run typecheck`, `pnpm test` (Vitest, with `TEST_DATABASE_URL` pointing at an isolated PostgreSQL), and `pnpm run build` in `api/`. Frontend verification runs formatting, linting, type checking, unit/component tests, and the production build. Full-stack verification starts from a clean test database, applies every migration, and runs contract, integration, and Playwright suites against the real processes.
 
 Tests replace behavior only at real Seams. They do not introduce a fake PostgreSQL repository for the transaction path, assert Tailwind classes or Axios internals, or reach through a Module Interface to private implementation details.

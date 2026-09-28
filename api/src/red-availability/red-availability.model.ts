@@ -1,8 +1,8 @@
 import type { Pool } from "pg";
 
-import { query } from "./query.js";
+import { query } from "../config/database.js";
 
-export class RedStore {
+export class RedAvailabilityModel {
   constructor(private readonly pool: Pool) {}
 
   async resetRedAvailability(signal?: AbortSignal): Promise<void> {

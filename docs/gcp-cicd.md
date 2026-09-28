@@ -4,7 +4,7 @@
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `CI` | PR + push to `main` | Frontend checks, Go tests (with Postgres), OpenAPI lint |
+| `CI` | PR + push to `main` | Frontend checks, Express API typecheck/tests (with Postgres)/build, OpenAPI lint |
 | `Deploy GCP` | after CI succeeds on `main`, or manual dispatch | Build images, migrate, deploy API + web to Cloud Run |
 
 ## Auth model

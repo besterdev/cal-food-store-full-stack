@@ -2,11 +2,8 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ErrInvalidIdempotencyKey,
-  prepare,
-  ValidationError,
-} from "./order.js";
+import { ErrInvalidIdempotencyKey, ValidationError } from "./order.errors.js";
+import { prepare } from "./order.service.js";
 
 describe("prepare", () => {
   it("builds canonical digests independent of line order", () => {

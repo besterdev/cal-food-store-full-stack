@@ -1,4 +1,4 @@
-import { ServiceUnavailableError } from "../modules/ordering/order.js";
+import { ServiceUnavailableError } from "../orders/order.errors.js";
 
 /**
  * Run work under a timeout. AbortSignal is aborted when the deadline elapses

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculate, type PricingInput } from "./pricing.js";
+import { calculate, type PricingInput } from "./order.pricing.js";
 
 describe("calculate", () => {
   it("prices full-price non-pair products", () => {

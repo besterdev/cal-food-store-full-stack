@@ -1,22 +1,22 @@
 import type { Request, Response } from "express";
 
-import { ErrInvalidCatalog, type Product } from "../../../modules/catalog/product.js";
-import { writeError } from "../../../middleware/http-errors.js";
-import { runWithTimeout } from "../../../utils/timeout.js";
+import { writeError } from "../middleware/http-errors.js";
+import { runWithTimeout } from "../utils/timeout.js";
+import { ErrInvalidCatalog, type ProductModel } from "./product.model.js";
 
-export interface ProductsControllerDeps {
-  listProducts: (signal?: AbortSignal) => Promise<Product[]>;
+export interface ProductControllerDeps {
+  products: ProductModel;
   requestTimeoutMs: number;
 }
 
-export class ProductsController {
-  constructor(private readonly deps: ProductsControllerDeps) {}
+export class ProductController {
+  constructor(private readonly deps: ProductControllerDeps) {}
 
   list = async (_req: Request, res: Response): Promise<void> => {
     try {
       const products = await runWithTimeout(
         this.deps.requestTimeoutMs,
-        (signal) => this.deps.listProducts(signal),
+        (signal) => this.deps.products.listProducts(signal),
       );
       res.status(200).json({ products });
     } catch (err) {

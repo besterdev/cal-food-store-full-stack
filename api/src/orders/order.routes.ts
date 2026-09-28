@@ -1,13 +1,13 @@
 import { Router } from "express";
 
 import {
-  OrdersController,
-  type OrdersControllerDeps,
-} from "./orders.controller.js";
+  OrderController,
+  type OrderControllerDeps,
+} from "./order.controller.js";
 
-export const createOrdersRoutes = (deps: OrdersControllerDeps): Router => {
+export const createOrderRoutes = (deps: OrderControllerDeps): Router => {
   const router = Router();
-  const controller = new OrdersController(deps);
+  const controller = new OrderController(deps);
 
   router.post("/orders", controller.create);
 

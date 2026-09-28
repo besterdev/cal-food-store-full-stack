@@ -1,13 +1,13 @@
 import { Router } from "express";
 
 import {
-  ProductsController,
-  type ProductsControllerDeps,
-} from "./products.controller.js";
+  ProductController,
+  type ProductControllerDeps,
+} from "./product.controller.js";
 
-export const createProductsRoutes = (deps: ProductsControllerDeps): Router => {
+export const createProductRoutes = (deps: ProductControllerDeps): Router => {
   const router = Router();
-  const controller = new ProductsController(deps);
+  const controller = new ProductController(deps);
 
   router.get("/products", controller.list);
 

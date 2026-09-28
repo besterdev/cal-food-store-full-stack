@@ -1,7 +1,6 @@
-import { Pool } from "pg";
-
+import { createPool } from "./config/database.js";
 import { loadConfig } from "./config/index.js";
-import { applyMigrations } from "./infrastructure/postgres/migrate.js";
+import { applyMigrations } from "./config/migrations.js";
 
 let databaseUrl: string;
 try {
@@ -11,7 +10,7 @@ try {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = createPool(databaseUrl);
 
 try {
   await applyMigrations(pool);

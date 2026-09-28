@@ -44,9 +44,9 @@ Do not introduce Zustand, React Hook Form, Zod, Motion, or another state/form/an
 ### Backend
 
 - **Language:** TypeScript on Node.js 22+
-- **HTTP framework:** Express (feature-based MVC under `src/v1/features/`)
+- **HTTP framework:** Express (feature-based MVC: `src/<feature>/` with model, controller, routes, and optional service)
 - **Database:** PostgreSQL
-- **Database access:** Parameterized SQL through a narrow PostgreSQL adapter (`pg`) under `src/infrastructure/postgres/`
+- **Database access:** Parameterized SQL through feature `*.model.ts` files using the shared `pg` helpers in `src/config/database.ts`
 - **Migrations:** Versioned, repeatable migration workflow
 - **Tests:** Vitest table-driven unit tests, HTTP contract tests, and PostgreSQL integration tests
 - **Config / middleware:** `src/config/`, shared `src/middleware/` (request-id, CORS, Helmet, centralized errors)
@@ -85,7 +85,7 @@ When implementing GitHub Issue #1, use the following workflow and precedence. Th
 - Use `vercel-plugin:nextjs` for App Router architecture, RSC and Client Component placement, data-fetching strategy, error/loading files, font handling, and Docker self-hosting behavior.
 - Use `vercel-plugin:next-best-practices` as the implementation checklist for file conventions, async APIs, serialization, hydration, Suspense, bundling, and image/font optimization.
 - Default to the Node.js runtime and Server Components. The interactive Order calculator is a focused Client Component subtree because it uses React Query and local interaction state.
-- Do not add Next.js Route Handlers as a proxy for the Go API unless the specification introduces a concrete browser or deployment requirement for that extra hop.
+- Do not add Next.js Route Handlers as a proxy for the Express API unless the specification introduces a concrete browser or deployment requirement for that extra hop.
 - When local Next.js documentation exists under `node_modules`, prefer it over recalled framework behavior.
 
 ### 4. Establish the UI direction before TSX implementation

@@ -1,9 +1,9 @@
 import type { Pool } from "pg";
 
-import { LATEST_VERSION } from "./migrate.js";
-import { query } from "./query.js";
+import { query } from "../config/database.js";
+import { LATEST_VERSION } from "../config/migrations.js";
 
-export class ReadinessStore {
+export class HealthModel {
   constructor(private readonly pool: Pool) {}
 
   async ready(signal?: AbortSignal): Promise<void> {

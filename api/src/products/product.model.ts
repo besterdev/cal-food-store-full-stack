@@ -1,8 +1,17 @@
 import type { Pool } from "pg";
 
-import type { Product } from "../../modules/catalog/product.js";
-import { ErrInvalidCatalog } from "../../modules/catalog/product.js";
-import { query } from "./query.js";
+import { query } from "../config/database.js";
+
+export interface Product {
+  code: string;
+  name: string;
+  unit_price_satang: number;
+  currency: string;
+  display_order: number;
+  color_token: string;
+}
+
+export const ErrInvalidCatalog = new Error("catalog data violates the contract");
 
 const CONTRACT_PRODUCTS: Product[] = [
   {
@@ -63,7 +72,7 @@ const CONTRACT_PRODUCTS: Product[] = [
   },
 ];
 
-export class CatalogStore {
+export class ProductModel {
   constructor(private readonly pool: Pool) {}
 
   async listProducts(signal?: AbortSignal): Promise<Product[]> {

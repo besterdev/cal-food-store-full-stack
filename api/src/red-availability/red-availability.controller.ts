@@ -1,10 +1,11 @@
 import type { Request, Response } from "express";
 
-import { writeError } from "../../../middleware/http-errors.js";
-import { runWithTimeout } from "../../../utils/timeout.js";
+import { writeError } from "../middleware/http-errors.js";
+import { runWithTimeout } from "../utils/timeout.js";
+import type { RedAvailabilityModel } from "./red-availability.model.js";
 
 export interface RedAvailabilityControllerDeps {
-  resetRedAvailability: (signal?: AbortSignal) => Promise<void>;
+  redAvailability: RedAvailabilityModel;
   requestTimeoutMs: number;
 }
 
@@ -14,7 +15,7 @@ export class RedAvailabilityController {
   reset = async (_req: Request, res: Response): Promise<void> => {
     try {
       await runWithTimeout(this.deps.requestTimeoutMs, (signal) =>
-        this.deps.resetRedAvailability(signal),
+        this.deps.redAvailability.resetRedAvailability(signal),
       );
       res.status(204).end();
     } catch {

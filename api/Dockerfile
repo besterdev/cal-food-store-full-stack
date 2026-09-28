@@ -20,4 +20,4 @@ COPY --from=build /src/migrations ./migrations
 USER app
 EXPOSE 8080
 ENV NODE_ENV=production
-ENTRYPOINT ["node", "dist/index.js"]
+ENTRYPOINT ["node", "dist/server.js"]

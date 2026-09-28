@@ -1,20 +1,22 @@
 import type { Pool, PoolClient } from "pg";
 
+import { query } from "../config/database.js";
 import {
   asServiceUnavailable,
+  classifyDbError,
   ErrIdempotencyConflict,
   ValidationError,
-  type OrderStore,
-  type PlacementTx,
-  type PreparedIntent,
-  type ProductSnapshot,
-  type Receipt,
-} from "../../modules/ordering/order.js";
-import type { Breakdown } from "../../modules/pricing/pricing.js";
-import { classifyDbError } from "./errors.js";
-import { query } from "./query.js";
+} from "./order.errors.js";
+import type { Breakdown } from "./order.pricing.js";
+import type {
+  PlacementTx,
+  PreparedIntent,
+  ProductSnapshot,
+  Receipt,
+  RedGateClaim,
+} from "./order.types.js";
 
-export class PlacementStore implements OrderStore {
+export class OrderModel {
   constructor(private readonly pool: Pool) {}
 
   async beginPlacement(signal?: AbortSignal): Promise<PlacementTx> {
@@ -249,7 +251,22 @@ class PlacementTransaction implements PlacementTx {
     }
   }
 
-  async lockRedGate(): Promise<Date> {
+  /**
+   * Lock the Red gate row, compare it with PostgreSQL time, and advance it by
+   * 60 minutes when Red is available. The row lock is held until commit or
+   * rollback, so concurrent Red Orders serialize here.
+   */
+  async claimRedGate(): Promise<RedGateClaim> {
+    const availableAt = await this.lockRedGate();
+    const now = await this.readClock();
+    if (now.getTime() < availableAt.getTime()) {
+      return { ok: false, availableAt };
+    }
+    await this.advanceRedGate(now);
+    return { ok: true, acceptedAt: now };
+  }
+
+  private async lockRedGate(): Promise<Date> {
     try {
       const result = await query<{ available_at: Date | null }>(
         this.client,
@@ -275,7 +292,7 @@ class PlacementTransaction implements PlacementTx {
     }
   }
 
-  async advanceRedGate(from: Date): Promise<void> {
+  private async advanceRedGate(from: Date): Promise<void> {
     try {
       await query(
         this.client,

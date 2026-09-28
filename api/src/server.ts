@@ -1,11 +1,8 @@
 import { createServer } from "node:http";
 
-import { Pool } from "pg";
-
 import { createApp } from "./app.js";
+import { createPool } from "./config/database.js";
 import { loadConfig } from "./config/index.js";
-import { OrderService } from "./modules/ordering/service.js";
-import { PostgresStore } from "./infrastructure/postgres/store.js";
 
 let config;
 try {
@@ -20,15 +17,10 @@ try {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString: config.databaseUrl });
-const store = new PostgresStore(pool);
-const orders = new OrderService(store);
+const pool = createPool(config.databaseUrl);
 
 const app = createApp({
-  listProducts: (signal) => store.listProducts(signal),
-  ready: (signal) => store.ready(signal),
-  orders,
-  resetRedAvailability: (signal) => store.resetRedAvailability(signal),
+  pool,
   allowedOrigins: config.allowedOrigins,
   requestTimeoutMs: config.requestTimeoutMs,
   readinessTimeoutMs: config.readinessTimeoutMs,

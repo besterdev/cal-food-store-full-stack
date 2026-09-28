@@ -5,9 +5,8 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
-import { OrderService } from "../modules/ordering/service.js";
-import { applyMigrations } from "../infrastructure/postgres/migrate.js";
-import { PostgresStore } from "../infrastructure/postgres/store.js";
+import { applyMigrations } from "../config/migrations.js";
+import { RedAvailabilityModel } from "../red-availability/red-availability.model.js";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "";
@@ -16,18 +15,13 @@ const describeIntegration = databaseUrl ? describe : describe.skip;
 
 describeIntegration("HTTP order contract", () => {
   let pool: Pool;
-  let store: PostgresStore;
   let app: ReturnType<typeof createApp>;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: databaseUrl });
     await applyMigrations(pool);
-    store = new PostgresStore(pool);
     app = createApp({
-      listProducts: (signal) => store.listProducts(signal),
-      ready: (signal) => store.ready(signal),
-      orders: new OrderService(store),
-      resetRedAvailability: (signal) => store.resetRedAvailability(signal),
+      pool,
       allowedOrigins: ["http://localhost:3000"],
     });
   });
@@ -40,7 +34,7 @@ describeIntegration("HTTP order contract", () => {
     await pool.query(
       "TRUNCATE order_lines, order_idempotency, orders RESTART IDENTITY",
     );
-    await store.resetRedAvailability();
+    await new RedAvailabilityModel(pool).resetRedAvailability();
   });
 
   it("lists exactly seven seeded products", async () => {
@@ -144,6 +138,40 @@ describeIntegration("HTTP order contract", () => {
       .set("Idempotency-Key", randomUUID())
       .send({ lines: [{ product_code: "RED", quantity: 1 }] })
       .expect(201);
+  });
+
+  it("accepts exactly one of ten concurrent red orders", async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        request(app)
+          .post("/api/v1/orders")
+          .set("Idempotency-Key", randomUUID())
+          .send({ lines: [{ product_code: "RED", quantity: 1 }] }),
+      ),
+    );
+
+    const accepted = responses.filter((response) => response.status === 201);
+    const blocked = responses.filter((response) => response.status === 409);
+    expect(accepted).toHaveLength(1);
+    expect(blocked).toHaveLength(9);
+    for (const response of blocked) {
+      expect(response.body.code).toBe("RED_UNAVAILABLE");
+    }
+
+    const orders = await pool.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM orders",
+    );
+    expect(Number(orders.rows[0]?.count)).toBe(1);
+
+    const gate = await pool.query<{ window_ms: number }>(
+      `
+        SELECT EXTRACT(EPOCH FROM (g.available_at - o.placed_at)) * 1000 AS window_ms
+        FROM red_availability_gate g, orders o
+        WHERE g.product_code = 'RED' AND o.id = $1
+      `,
+      [accepted[0]?.body.order_id],
+    );
+    expect(Number(gate.rows[0]?.window_ms)).toBe(60 * 60 * 1000);
   });
 
   it("rejects unknown JSON fields", async () => {

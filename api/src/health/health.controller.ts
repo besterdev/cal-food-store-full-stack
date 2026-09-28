@@ -1,10 +1,11 @@
 import type { Request, Response } from "express";
 
-import { writeError } from "../../../middleware/http-errors.js";
-import { runWithTimeout } from "../../../utils/timeout.js";
+import { writeError } from "../middleware/http-errors.js";
+import { runWithTimeout } from "../utils/timeout.js";
+import type { HealthModel } from "./health.model.js";
 
 export interface HealthControllerDeps {
-  ready: (signal?: AbortSignal) => Promise<void>;
+  health: HealthModel;
   readinessTimeoutMs: number;
 }
 
@@ -18,7 +19,7 @@ export class HealthController {
   ready = async (_req: Request, res: Response): Promise<void> => {
     try {
       await runWithTimeout(this.deps.readinessTimeoutMs, (signal) =>
-        this.deps.ready(signal),
+        this.deps.health.ready(signal),
       );
       res.status(200).json({ status: "ok" });
     } catch {

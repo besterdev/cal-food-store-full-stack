@@ -1,4 +1,8 @@
+import pg from "pg";
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
+
+export const createPool = (databaseUrl: string): Pool =>
+  new pg.Pool({ connectionString: databaseUrl });
 
 /** Run a parameterized query; reject promptly when AbortSignal fires. */
 export const query = async <T extends QueryResultRow = QueryResultRow>(

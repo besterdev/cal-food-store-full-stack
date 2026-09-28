@@ -1,42 +1,51 @@
-import { Router } from "express";
+import { Router, type Express } from "express";
+import type { Pool } from "pg";
 
-import type { Product } from "../modules/catalog/product.js";
-import type { OrderService } from "../modules/ordering/service.js";
-import { createOrdersRoutes } from "./features/orders/orders.routes.js";
-import { createProductsRoutes } from "./features/products/products.routes.js";
-import { createRedAvailabilityRoutes } from "./features/red-availability/red-availability.routes.js";
+import { HealthModel } from "../health/health.model.js";
+import { createHealthRoutes } from "../health/health.routes.js";
+import { OrderModel } from "../orders/order.model.js";
+import { createOrderRoutes } from "../orders/order.routes.js";
+import { OrderService } from "../orders/order.service.js";
+import { ProductModel } from "../products/product.model.js";
+import { createProductRoutes } from "../products/product.routes.js";
+import { RedAvailabilityModel } from "../red-availability/red-availability.model.js";
+import { createRedAvailabilityRoutes } from "../red-availability/red-availability.routes.js";
 
-export interface V1Deps {
-  listProducts: (signal?: AbortSignal) => Promise<Product[]>;
-  orders: OrderService;
-  resetRedAvailability?: (signal?: AbortSignal) => Promise<void>;
+export interface RoutesLoaderOptions {
+  pool: Pool;
   requestTimeoutMs: number;
+  readinessTimeoutMs: number;
 }
 
-/** Mount versioned Food Store API routes under /api/v1. */
-export const createV1Router = (deps: V1Deps): Router => {
-  const router = Router();
+/** Mount health checks at the root and Food Store features under /api/v1. */
+export const loadRoutes = (app: Express, options: RoutesLoaderOptions): void => {
+  const { pool, requestTimeoutMs, readinessTimeoutMs } = options;
 
-  router.use(
-    createProductsRoutes({
-      listProducts: deps.listProducts,
-      requestTimeoutMs: deps.requestTimeoutMs,
+  app.use(
+    createHealthRoutes({
+      health: new HealthModel(pool),
+      readinessTimeoutMs,
     }),
   );
-  router.use(
-    createOrdersRoutes({
-      orders: deps.orders,
-      requestTimeoutMs: deps.requestTimeoutMs,
+
+  const v1 = Router();
+  v1.use(
+    createProductRoutes({
+      products: new ProductModel(pool),
+      requestTimeoutMs,
     }),
   );
-  if (deps.resetRedAvailability) {
-    router.use(
-      createRedAvailabilityRoutes({
-        resetRedAvailability: deps.resetRedAvailability,
-        requestTimeoutMs: deps.requestTimeoutMs,
-      }),
-    );
-  }
-
-  return router;
+  v1.use(
+    createOrderRoutes({
+      orders: new OrderService(new OrderModel(pool)),
+      requestTimeoutMs,
+    }),
+  );
+  v1.use(
+    createRedAvailabilityRoutes({
+      redAvailability: new RedAvailabilityModel(pool),
+      requestTimeoutMs,
+    }),
+  );
+  app.use("/api/v1", v1);
 };
