@@ -1,7 +1,7 @@
 # Food Store Calculator
 
 Full-stack Order calculator for a fixed seven-Product catalog.  
-**Next.js** · **Go Fiber** · **PostgreSQL** — the API is the only pricing authority.
+**Next.js** · **Express** · **PostgreSQL** — the API is the only pricing authority.
 
 ## Live demo
 
@@ -45,7 +45,7 @@ Stop: `docker compose down`
 ## Architecture
 
 ```text
-Browser → Next.js → Go Fiber (/api/v1) → PostgreSQL
+Browser → Next.js → Express (/api/v1) → PostgreSQL
 ```
 
 - Handlers → Order service → pure pricing module → Postgres adapter
@@ -76,8 +76,8 @@ pnpm run format:check && pnpm run lint && pnpm run typecheck
 pnpm test && pnpm run build
 
 # Backend
-cd api
-gofmt -l . && go vet ./...
+cd api && pnpm install
+pnpm run typecheck && pnpm test && pnpm run build
 go test ./... && go test -race ./...
 
 # OpenAPI

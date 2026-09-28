@@ -43,7 +43,7 @@ The checked-in OpenAPI document is authoritative for exact paths, schemas, statu
 | Layer | Tooling | Owns |
 | --- | --- | --- |
 | Pure domain | Go table-driven tests | Pair Discount eligibility, discount order, half-up rounding, bounds, overflow, and total invariants |
-| HTTP contract | Go HTTP tests against Fiber | Decode rules, headers, validation mapping, Product contract, Order response and error schemas |
+| HTTP contract | Vitest HTTP tests against Express | Decode rules, headers, validation mapping, Product contract, Order response and error schemas |
 | Persistence and transaction | Go tests against isolated real PostgreSQL | Migrations, snapshots, idempotency, Red serialization, boundary time, rollback, multi-instance behavior |
 | Frontend component | Vitest and React Testing Library | User-visible rendering and local Order draft behavior |
 | Frontend integration | Vitest, React Testing Library, controlled Axios boundary, React Query provider | Cache, retries, structured errors, mutation state, idempotency-key lifecycle |
@@ -326,10 +326,10 @@ pnpm run build
 ### Backend
 
 ```bash
-gofmt -l .
-go vet ./...
-go test ./...
-go test -race ./...
+cd api
+pnpm run typecheck
+pnpm test
+pnpm run build
 ```
 
 ### Full stack

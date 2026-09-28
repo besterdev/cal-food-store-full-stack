@@ -12,7 +12,7 @@ The v1 system deliberately excludes price quotes, payments, authentication, inve
 flowchart LR
     Customer[Customer or store staff]
     Browser[Next.js web application]
-    API[Go Fiber API]
+    API[Express API]
     DB[(PostgreSQL)]
 
     Customer -->|edits Order Draft and places Order| Browser
@@ -21,7 +21,7 @@ flowchart LR
     API -->|Receipt or structured error| Browser
 ```
 
-The browser calls the Go API directly. Next.js Route Handlers do not proxy API traffic. PostgreSQL is the source of truth for the Product Catalog, accepted Orders, idempotency, and the Red Availability Window.
+The browser calls the Express API directly. Next.js Route Handlers do not proxy API traffic. PostgreSQL is the source of truth for the Product Catalog, accepted Orders, idempotency, and the Red Availability Window.
 
 ## Authoritative Invariants
 
@@ -56,18 +56,18 @@ The public Interface of each Module is also its primary test surface. Internal d
 | Module | Interface | Implementation hidden behind the Interface | Seam and Adapter | Depth, Leverage, and Locality |
 | --- | --- | --- | --- | --- |
 | Order Calculator Module | Render Products and an Order Draft; accept quantity, Member Card, retry, and New Order actions; render a Receipt or actionable failure | Draft state, intent identity, idempotency-key lifecycle, React Query read/mutation state, submission lock, and recovery states | The JSON/HTTP seam uses the single configured Axios Adapter | Callers learn one workflow while loading, retries, locking, and recovery remain local |
-| Product Catalog Module | `ListProducts(ctx) -> []Product` ordered by `display_order` | Product query, row validation, and public representation | Fiber is the inbound HTTP Adapter; the concrete PostgreSQL Adapter owns SQL | One read operation hides persistence and representation details without a generic repository Interface |
-| Order Module | `PlaceOrder(ctx, command) -> Receipt` or a classified domain error | Structural domain validation, canonical intent, idempotency claim/replay, catalog snapshot, pricing orchestration, Red gate serialization, snapshots, and commit | Fiber is the inbound Adapter. The concrete PostgreSQL Adapter is an internal dependency at the database seam | One operation provides high Leverage while keeping transaction and concurrency knowledge local |
+| Product Catalog Module | `ListProducts() -> Product[]` ordered by `display_order` | Product query, row validation, and public representation | Express is the inbound HTTP Adapter; the concrete PostgreSQL Adapter owns SQL | One read operation hides persistence and representation details without a generic repository Interface |
+| Order Module | `PlaceOrder(command) -> Receipt` or a classified domain error | Structural domain validation, canonical intent, idempotency claim/replay, catalog snapshot, pricing orchestration, Red gate serialization, snapshots, and commit | Express is the inbound Adapter. The concrete PostgreSQL Adapter is an internal dependency at the database seam | One operation provides high Leverage while keeping transaction and concurrency knowledge local |
 | Pricing Module | `Calculate(PricingInput) -> PricingBreakdown` or arithmetic error | Same-Product pairing, discount order, half-up rounding, totals, and invariant checks | This is an in-process Seam; callers use the pure implementation directly and no Adapter is needed | A small deterministic Interface concentrates every pricing rule and makes table-driven tests natural |
 | PostgreSQL Module | Narrow concrete operations used by Catalog and Order implementations | Parameterized SQL, transaction lifecycle, row decoding, immutable snapshot writes, and error classification | The PostgreSQL wire protocol is the external Seam; the production and integration-test database instances are Adapters at that Seam | SQL and transaction behavior stay local; there is no pass-through repository layer or in-memory substitute for database concurrency |
-| HTTP Transport Module | Versioned JSON endpoints, health endpoints, headers, status codes, and structured errors | Strict decoding, request limits, validation mapping, request IDs, response serialization, and timeouts | Fiber is the HTTP Adapter around the application Modules | Protocol concerns remain local and never enter Pricing or persistence logic |
+| HTTP Transport Module | Versioned JSON endpoints, health endpoints, headers, status codes, and structured errors | Strict decoding, request limits, validation mapping, request IDs, response serialization, and timeouts | Express is the HTTP Adapter around the application Modules | Protocol concerns remain local and never enter Pricing or persistence logic |
 
 The dependency direction is:
 
 ```text
 Next.js Order Calculator Module
     -> configured Axios Adapter
-        -> Fiber HTTP Transport Module
+        -> Express HTTP Transport Module
             -> Product Catalog Module
             -> Order Module
                 -> Pricing Module
@@ -93,7 +93,7 @@ No generic repository, provider Interface, event bus, or server-side/shared cach
 sequenceDiagram
     actor Customer
     participant Web as Next.js Order Calculator
-    participant HTTP as Fiber HTTP Adapter
+    participant HTTP as Express HTTP Adapter
     participant Order as Order Module
     participant Pricing as Pricing Module
     participant DB as PostgreSQL
@@ -317,7 +317,7 @@ flowchart TB
 
     subgraph Compose[Docker Compose development project]
         Web[web: Next.js standalone\ncontainer port 3000]
-        API[api: Go Fiber\ncontainer port 8080]
+        API[api: Express\ncontainer port 8080]
         Migrate[migrate: one-shot migration job]
         DB[(db: PostgreSQL 5432\nnamed development volume)]
         Migrate --> DB
@@ -350,7 +350,7 @@ The highest and primary Seam is `POST /api/v1/orders`; tests assert observable s
 | Test layer | Seam and Adapter | Required proof |
 | --- | --- | --- |
 | Pricing unit tests | Direct Pricing Module Interface; no Adapter | Every Product, eligible quantities 0-4, odd sets, mixed Products, Member ordering, half-up rounding, overflow rejection, reference cases, and Final Total invariant |
-| HTTP contract tests | Fiber HTTP Adapter through real request/response | Strict JSON/header validation, exact Product catalog, Order errors, successful `201`, same-key `201` replay, mismatch conflict, and safe error shape |
+| HTTP contract tests | Express HTTP Adapter through real request/response | Strict JSON/header validation, exact Product catalog, Order errors, successful `201`, same-key `201` replay, mismatch conflict, and safe error shape |
 | PostgreSQL integration tests | Order Module with a freshly migrated real PostgreSQL Adapter | Commit/rollback, immutable snapshots, concurrent identical keys, different intents, missing gate failure, and multiple API-instance behavior |
 | Red concurrency tests | At least ten simultaneous HTTP Order attempts with distinct keys | Exactly one Red success; every other Red attempt conflicts; non-Red Orders continue |
 | Red boundary tests | Gate timestamps written with PostgreSQL time | Block before `available_at`, accept at or after the exact timestamp, and restore availability after a later transaction failure |

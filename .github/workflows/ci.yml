@@ -75,28 +75,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: pnpm/action-setup@v4
         with:
-          go-version-file: api/go.mod
-          cache-dependency-path: api/go.sum
+          version: 10.17.0
 
-      - name: Format
-        run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "gofmt needed:" >&2
-            echo "$unformatted" >&2
-            exit 1
-          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: api/pnpm-lock.yaml
 
-      - name: Vet
-        run: go vet ./...
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
 
       - name: Test
-        run: go test -count=1 ./...
+        run: pnpm test
 
-      - name: Race tests
-        run: go test -count=1 -race ./...
+      - name: Production build
+        run: pnpm run build
 
   openapi:
     name: OpenAPI
