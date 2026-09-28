@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 
 WORKDIR /src
 RUN corepack enable && corepack prepare pnpm@10.17.0 --activate
@@ -9,7 +9,7 @@ COPY src ./src
 COPY migrations ./migrations
 RUN pnpm run build && pnpm prune --prod
 
-FROM node:22-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 # The runtime only needs `node`; drop the bundled package managers and their CVE surface.
