@@ -30,6 +30,7 @@ Specs: [requirements](./docs/requirements.md) · [OpenAPI](./docs/openapi.yaml) 
 
 ```bash
 docker compose up --build
+# or: make up-build
 ```
 
 
@@ -41,7 +42,9 @@ docker compose up --build
 | Postgres | `localhost:5432` · db/user/password `food_store`                               |
 
 
-Stop: `docker compose down`
+Stop: `docker compose down` (or `make down`)
+
+Useful Make targets: `make help`, `make db-reset`, `make test`, `make migrate`, `make db-shell`.
 
 ## Architecture
 
@@ -83,6 +86,7 @@ Browser → Next.js → Express (/api/v1) → PostgreSQL
 ├── docs/                        Specs, OpenAPI, ADRs, test plan, verification
 ├── scripts/                     GCP deploy
 ├── compose.yaml                 web + api + postgres (+ migrate job)
+├── Makefile                     Local shortcuts (`make help`)
 └── .github/workflows/           CI, CodeQL, deploy
 ```
 
