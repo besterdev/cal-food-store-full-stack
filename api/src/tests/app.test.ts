@@ -1,0 +1,280 @@
+import { randomUUID } from "node:crypto";
+
+import type { Pool } from "pg";
+import request from "supertest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+import { createApp } from "../app.js";
+import { createPool } from "../config/database.js";
+import { applyMigrations } from "../config/migrations.js";
+import { RedAvailabilityModel } from "../red-availability/red-availability.model.js";
+
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "";
+
+const describeIntegration = databaseUrl ? describe : describe.skip;
+
+describeIntegration("HTTP order contract", () => {
+  let pool: Pool;
+  let app: ReturnType<typeof createApp>;
+
+  beforeAll(async () => {
+    pool = createPool(databaseUrl, 1000);
+    await applyMigrations(pool);
+    app = createApp({
+      pool,
+      allowedOrigins: ["http://localhost:3000"],
+    });
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  beforeEach(async () => {
+    await pool.query(
+      "TRUNCATE order_lines, order_idempotency, orders RESTART IDENTITY",
+    );
+    await new RedAvailabilityModel(pool).reset();
+  });
+
+  it("lists exactly seven seeded products", async () => {
+    const response = await request(app).get("/api/v1/products").expect(200);
+    expect(response.body.products).toHaveLength(7);
+    expect(response.body.products[0]).toMatchObject({
+      code: "RED",
+      unit_price_satang: 5000,
+      currency: "THB",
+      display_order: 1,
+    });
+  });
+
+  it("places a non-discounted order", async () => {
+    const key = randomUUID();
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", key)
+      .send({
+        lines: [{ product_code: "BLUE", quantity: 2 }],
+      })
+      .expect(201);
+
+    expect(response.body.final_total_satang).toBe(6000);
+    expect(response.body.pair_discount_total_satang).toBe(0);
+    expect(response.body.member_applied).toBe(false);
+    expect(response.headers.location).toMatch(/^\/api\/v1\/orders\//);
+  });
+
+  it("applies pair then member discounts", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .send({
+        lines: [{ product_code: "ORANGE", quantity: 2 }],
+        member_card_number: "MEMBER-1",
+      })
+      .expect(201);
+
+    expect(response.body.total_before_discount_satang).toBe(24000);
+    expect(response.body.pair_discount_total_satang).toBe(1200);
+    expect(response.body.member_discount_satang).toBe(2280);
+    expect(response.body.final_total_satang).toBe(20520);
+  });
+
+  it("replays identical idempotent intents", async () => {
+    const key = randomUUID();
+    const body = { lines: [{ product_code: "YELLOW", quantity: 1 }] };
+    const first = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", key)
+      .send(body)
+      .expect(201);
+    const second = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", key)
+      .send(body)
+      .expect(201);
+
+    expect(second.body.order_id).toBe(first.body.order_id);
+    expect(second.body.final_total_satang).toBe(first.body.final_total_satang);
+  });
+
+  it("rejects idempotency conflict for a different intent", async () => {
+    const key = randomUUID();
+    await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", key)
+      .send({ lines: [{ product_code: "BLUE", quantity: 1 }] })
+      .expect(201);
+
+    const conflict = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", key)
+      .send({ lines: [{ product_code: "BLUE", quantity: 2 }] })
+      .expect(409);
+
+    expect(conflict.body.code).toBe("IDEMPOTENCY_CONFLICT");
+  });
+
+  it("enforces the red availability window", async () => {
+    await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .send({ lines: [{ product_code: "RED", quantity: 1 }] })
+      .expect(201);
+
+    const blocked = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .send({ lines: [{ product_code: "RED", quantity: 1 }] })
+      .expect(409);
+
+    expect(blocked.body.code).toBe("RED_UNAVAILABLE");
+    expect(blocked.body.available_at).toBeTruthy();
+
+    await request(app).post("/api/v1/red-availability/reset").expect(204);
+
+    await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .send({ lines: [{ product_code: "RED", quantity: 1 }] })
+      .expect(201);
+  });
+
+  it("accepts exactly one of ten concurrent red orders", async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        request(app)
+          .post("/api/v1/orders")
+          .set("Idempotency-Key", randomUUID())
+          .send({ lines: [{ product_code: "RED", quantity: 1 }] }),
+      ),
+    );
+
+    const accepted = responses.filter((response) => response.status === 201);
+    const blocked = responses.filter((response) => response.status === 409);
+    expect(accepted).toHaveLength(1);
+    expect(blocked).toHaveLength(9);
+    for (const response of blocked) {
+      expect(response.body.code).toBe("RED_UNAVAILABLE");
+    }
+
+    const orders = await pool.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM orders",
+    );
+    expect(Number(orders.rows[0]?.count)).toBe(1);
+
+    const gate = await pool.query<{ window_ms: number }>(
+      `
+        SELECT EXTRACT(EPOCH FROM (g.available_at - o.placed_at)) * 1000 AS window_ms
+        FROM red_availability_gate g, orders o
+        WHERE g.product_code = 'RED' AND o.id = $1
+      `,
+      [accepted[0]?.body.order_id],
+    );
+    expect(Number(gate.rows[0]?.window_ms)).toBe(60 * 60 * 1000);
+  });
+
+  it("returns 503 and persists nothing when the red gate stays locked", async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        "SELECT 1 FROM red_availability_gate WHERE product_code = 'RED' FOR UPDATE",
+      );
+
+      const response = await request(app)
+        .post("/api/v1/orders")
+        .set("Idempotency-Key", randomUUID())
+        .send({ lines: [{ product_code: "RED", quantity: 1 }] })
+        .expect(503);
+      expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
+
+    const orders = await pool.query<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM order_idempotency",
+    );
+    expect(orders.rows[0]?.count).toBe(0);
+  });
+
+  it("sends a deny-all content security policy", async () => {
+    const response = await request(app).get("/health/live").expect(200);
+
+    expect(response.headers["content-security-policy"]).toBe(
+      "default-src 'none';frame-ancestors 'none'",
+    );
+  });
+
+  it("rejects unknown JSON fields", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .send({
+        lines: [{ product_code: "BLUE", quantity: 1 }],
+        tip: 100,
+      })
+      .expect(400);
+
+    expect(response.body.code).toBe("MALFORMED_JSON");
+  });
+
+  it("requires an idempotency key", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .send({ lines: [{ product_code: "BLUE", quantity: 1 }] })
+      .expect(400);
+
+    expect(response.body.code).toBe("INVALID_IDEMPOTENCY_KEY");
+  });
+
+  it("rejects an idempotency key longer than 128 characters", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", "k".repeat(129))
+      .send({ lines: [{ product_code: "BLUE", quantity: 1 }] })
+      .expect(400);
+
+    expect(response.body.code).toBe("INVALID_IDEMPOTENCY_KEY");
+  });
+
+  it("lists products with integer satang prices in display order", async () => {
+    const response = await request(app).get("/api/v1/products").expect(200);
+
+    expect(
+      response.body.products.map(
+        (product: { code: string; unit_price_satang: number }) => [
+          product.code,
+          product.unit_price_satang,
+        ],
+      ),
+    ).toEqual([
+      ["RED", 5000],
+      ["GREEN", 4000],
+      ["BLUE", 3000],
+      ["YELLOW", 5000],
+      ["PINK", 8000],
+      ["PURPLE", 9000],
+      ["ORANGE", 12000],
+    ]);
+  });
+
+  it("reports readiness when migrations are applied", async () => {
+    await request(app).get("/health/ready").expect(200, { status: "ok" });
+  });
+
+  it("returns a request_id when JSON is malformed", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", randomUUID())
+      .set("Content-Type", "application/json")
+      .send("{")
+      .expect(400);
+
+    expect(response.body.code).toBe("MALFORMED_JSON");
+    expect(response.body.request_id).toMatch(/^req_/);
+    expect(response.headers["x-request-id"]).toMatch(/^req_/);
+  });
+});

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository contains a full-stack Food Store Calculator built with Next.js, TypeScript, Tailwind CSS, shadcn/ui, Go Fiber, and PostgreSQL.
+This repository contains a full-stack Food Store Calculator built with Next.js, TypeScript, Tailwind CSS, shadcn/ui, Express, and PostgreSQL.
 
 The API is the only pricing authority. The frontend collects an Order draft and renders the Pricing Breakdown returned by the API; it must not duplicate discount calculations.
 
@@ -14,7 +14,7 @@ Prioritize, in order:
 4. Extensibility without speculative abstraction
 5. Accessibility, responsive UX, and performance
 
-Use pnpm for frontend package management and script execution. Use the Go toolchain for backend commands. Do not introduce npm, Yarn, or Bun commands into documentation or automation.
+Use pnpm for frontend and API package management and script execution. Do not introduce npm, Yarn, or Bun commands into documentation or automation.
 
 ## Source of Truth
 
@@ -43,12 +43,13 @@ Do not introduce Zustand, React Hook Form, Zod, Motion, or another state/form/an
 
 ### Backend
 
-- **Language:** Go
-- **HTTP framework:** Fiber
+- **Language:** TypeScript on Node.js 22+
+- **HTTP framework:** Express (feature-based MVC: `src/<feature>/` with model, controller, routes, and optional service)
 - **Database:** PostgreSQL
-- **Database access:** Parameterized SQL through a narrow PostgreSQL adapter
+- **Database access:** Parameterized SQL through feature `*.model.ts` files using the shared `pg` helpers in `src/config/database.ts`
 - **Migrations:** Versioned, repeatable migration workflow
-- **Tests:** Go table-driven unit tests, HTTP contract tests, and PostgreSQL integration tests
+- **Tests:** Vitest table-driven unit tests, HTTP contract tests, and PostgreSQL integration tests
+- **Config / middleware:** `src/config/`, shared `src/middleware/` (request-id, CORS, Helmet, centralized errors)
 
 ## Implementation Skill Workflow
 
@@ -84,7 +85,7 @@ When implementing GitHub Issue #1, use the following workflow and precedence. Th
 - Use `vercel-plugin:nextjs` for App Router architecture, RSC and Client Component placement, data-fetching strategy, error/loading files, font handling, and Docker self-hosting behavior.
 - Use `vercel-plugin:next-best-practices` as the implementation checklist for file conventions, async APIs, serialization, hydration, Suspense, bundling, and image/font optimization.
 - Default to the Node.js runtime and Server Components. The interactive Order calculator is a focused Client Component subtree because it uses React Query and local interaction state.
-- Do not add Next.js Route Handlers as a proxy for the Go API unless the specification introduces a concrete browser or deployment requirement for that extra hop.
+- Do not add Next.js Route Handlers as a proxy for the Express API unless the specification introduces a concrete browser or deployment requirement for that extra hop.
 - When local Next.js documentation exists under `node_modules`, prefer it over recalled framework behavior.
 
 ### 4. Establish the UI direction before TSX implementation
@@ -105,7 +106,7 @@ When implementing GitHub Issue #1, use the following workflow and precedence. Th
 
 ### 6. Apply specialist verification skills
 
-- Use `golang-swagger` when implementing or validating Fiber/OpenAPI documentation, while keeping the checked-in OpenAPI contract authoritative.
+- Use Express/OpenAPI skills when implementing or validating HTTP documentation, while keeping the checked-in OpenAPI contract authoritative.
 - Use `a11y-playwright-testing` for axe-core, keyboard, focus, form-label, accessible-name, and WCAG 2.2 AA browser coverage.
 - Finish with the repository-wide `code-review` required by `implement`.
 
@@ -126,18 +127,18 @@ When implementing GitHub Issue #1, use the following workflow and precedence. Th
 Use this dependency direction:
 
 ```text
-Fiber handlers
-    -> Order service
-        -> Pure pricing module
-        -> PostgreSQL adapter
+Express handlers
+ -> Order service
+ -> Pure pricing module
+ -> PostgreSQL adapter
 ```
 
 - Handlers own HTTP decoding, validation mapping, status codes, and response serialization.
 - The Order service owns transaction orchestration, idempotency, and Red Availability behavior.
-- The pricing module is deterministic and contains no Fiber, SQL, clock, or network dependencies.
+- The pricing module is deterministic and contains no Express, SQL, clock, or network dependencies.
 - The PostgreSQL adapter owns SQL and persistence details.
 - Do not add a generic repository layer, event bus, cache, or queue without a concrete requirement.
-- Accept `context.Context` at I/O boundaries and propagate cancellation and deadlines.
+- Propagate timeouts at I/O boundaries.
 - Wrap errors with useful operation context while preserving errors that callers need to classify.
 
 ### API contract
@@ -205,11 +206,10 @@ Fiber handlers
 - Respect `prefers-reduced-motion`; use animation only when it explains state or hierarchy.
 - Prevent layout shifts and avoid unnecessary client-side JavaScript.
 
-## Go Development Rules
+## API Development Rules
 
-- Format Go code with `gofmt`.
 - Keep packages focused around catalog, pricing, ordering, PostgreSQL persistence, and HTTP transport responsibilities.
-- Prefer plain structs and explicit functions over framework-like internal abstractions.
+- Prefer plain types and explicit functions over framework-like internal abstractions.
 - Inject the narrow dependencies required by the Order service so pricing and transaction behavior remain testable.
 - Validate quantities and arithmetic bounds before multiplying or summing monetary values.
 - Make rounding rules explicit and test them at the pricing boundary.
@@ -237,7 +237,6 @@ Fiber handlers
 - Frontend tests should exercise user-visible behavior and HTTP responses rather than Axios internals, React Query implementation details, Tailwind class strings, or shadcn component internals.
 - Playwright must cover the normal Order flow, combined Pair and Member Discounts, and Red conflict recovery at mobile and desktop widths.
 - Include accessibility checks and visible screenshot evidence for material UI work.
-- Run backend concurrency tests with the Go race detector.
 
 ## Verification Before Handoff
 
@@ -256,10 +255,10 @@ pnpm run build
 ### Backend
 
 ```bash
-gofmt -l .
-go vet ./...
-go test ./...
-go test -race ./...
+cd api
+pnpm run typecheck
+pnpm test
+pnpm run build
 ```
 
 ### Full stack

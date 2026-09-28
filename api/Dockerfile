@@ -1,17 +1,26 @@
-FROM golang:1.25-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
+RUN corepack enable && corepack prepare pnpm@10.17.0 --activate
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
+COPY migrations ./migrations
+RUN pnpm run build && pnpm prune --prod
 
-FROM alpine:3.22
+FROM node:22-alpine
 
-RUN addgroup -S app && adduser -S -G app app
-COPY --from=build /out/api /usr/local/bin/api
-COPY --from=build /out/migrate /usr/local/bin/migrate
+WORKDIR /app
+# The runtime only needs `node`; drop the bundled package managers and their CVE surface.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+    && addgroup -S app && adduser -S -G app app
+COPY --from=build /src/package.json /src/pnpm-lock.yaml* ./
+COPY --from=build /src/node_modules ./node_modules
+COPY --from=build /src/dist ./dist
+COPY --from=build /src/migrations ./migrations
 USER app
 EXPOSE 8080
-ENTRYPOINT ["api"]
+ENV NODE_ENV=production
+ENTRYPOINT ["node", "dist/server.js"]

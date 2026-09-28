@@ -18,6 +18,7 @@ test-results/
 bin/
 tmp/
 *.out
+dist/
 
 # Editor and operating system files
 .DS_Store

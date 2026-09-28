@@ -42,9 +42,9 @@ The checked-in OpenAPI document is authoritative for exact paths, schemas, statu
 
 | Layer | Tooling | Owns |
 | --- | --- | --- |
-| Pure domain | Go table-driven tests | Pair Discount eligibility, discount order, half-up rounding, bounds, overflow, and total invariants |
-| HTTP contract | Go HTTP tests against Fiber | Decode rules, headers, validation mapping, Product contract, Order response and error schemas |
-| Persistence and transaction | Go tests against isolated real PostgreSQL | Migrations, snapshots, idempotency, Red serialization, boundary time, rollback, multi-instance behavior |
+| Pure domain | Vitest table-driven tests (`api/src/orders/order.pricing.test.ts`, `order.service.test.ts`) | Pair Discount eligibility, discount order, half-up rounding, bounds, overflow, and total invariants |
+| HTTP contract | Vitest HTTP tests against Express | Decode rules, headers, validation mapping, Product contract, Order response and error schemas |
+| Persistence and transaction | Vitest + supertest against isolated real PostgreSQL (`TEST_DATABASE_URL`) | Migrations, snapshots, idempotency, Red serialization, boundary time, rollback, multi-instance behavior |
 | Frontend component | Vitest and React Testing Library | User-visible rendering and local Order draft behavior |
 | Frontend integration | Vitest, React Testing Library, controlled Axios boundary, React Query provider | Cache, retries, structured errors, mutation state, idempotency-key lifecycle |
 | Browser E2E | Playwright against the real local web, API, and PostgreSQL stack | Complete Customer flows, responsive behavior, accessibility, and screenshot evidence |
@@ -75,7 +75,7 @@ All wire and persistence values use integer satang. Tests assert every intermedi
 - Pair Discounts are applied before the Member Discount.
 - Member Card cases: absent, empty, whitespace-only, leading or trailing whitespace, and non-empty. Only trimmed non-empty presence changes eligibility.
 - Half-up rounding at exact half-satang boundaries using controlled synthetic unit-price fixtures in the pure pricing module. Do not alter the production catalog to manufacture a rounding case.
-- Maximum valid quantities and totals remain within `int64` bounds.
+- Maximum valid quantities and totals remain within JavaScript safe-integer bounds (and therefore PostgreSQL `bigint` / OpenAPI `int64`).
 - Multiplication, summation, or discount arithmetic that would overflow is rejected before persistence.
 - Invariants for every successful result:
   - Pair Discount total equals the sum of per-Product Pair Discounts.
@@ -149,7 +149,7 @@ Use a clean migrated test database and real transactions. The Red gate is a sing
 - Start at least 10 Red-containing Order requests behind a synchronization barrier so they contend at the transaction boundary.
 - Use unique idempotency keys and equivalent valid Order bodies.
 - Assert exactly one `201`, nine contract-defined Red conflicts, one persisted Order, correct Order Lines, and one gate advancement.
-- Repeat enough times to expose nondeterministic behavior and run the Go suite with the race detector.
+- Repeat enough times to expose nondeterministic behavior.
 - Repeat through two API processes or service instances against the same database.
 - In a separate case, run non-Red Orders concurrently during the blocked window and assert all valid non-Red Orders remain eligible.
 
@@ -213,7 +213,7 @@ Use a fresh QueryClient per test and a controlled clock.
 
 ## Playwright End-to-End Flows
 
-Run against the real local Next.js, Go API, and isolated PostgreSQL stack. Execute the core flow at desktop and mobile widths. Prefer role and label locators; CSS selectors are a fallback only for non-semantic visual evidence.
+Run against the real local Next.js, Express API, and isolated PostgreSQL stack. Execute the core flow at desktop and mobile widths. Prefer role and label locators; CSS selectors are a fallback only for non-semantic visual evidence.
 
 ### Flow A: normal Order
 
@@ -326,10 +326,10 @@ pnpm run build
 ### Backend
 
 ```bash
-gofmt -l .
-go vet ./...
-go test ./...
-go test -race ./...
+cd api
+pnpm run typecheck
+pnpm test
+pnpm run build
 ```
 
 ### Full stack

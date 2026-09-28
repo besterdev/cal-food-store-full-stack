@@ -154,7 +154,7 @@ gcloud run deploy "${API_SERVICE}" \
   --max-instances=5 \
   --timeout=60 \
   --set-cloudsql-instances="${CONNECTION_NAME}" \
-  --set-env-vars="API_ADDRESS=:8080,CORS_ALLOWED_ORIGINS=${INITIAL_CORS}" \
+  --set-env-vars="CORS_ALLOWED_ORIGINS=${INITIAL_CORS}" \
   --set-secrets="DATABASE_URL=${DB_URL_SECRET}:latest" \
   --project="${PROJECT_ID}" \
   --quiet
@@ -167,7 +167,8 @@ if gcloud run jobs describe "${MIGRATE_JOB}" --region="${REGION}" --project="${P
   gcloud run jobs update "${MIGRATE_JOB}" \
     --image="${API_IMAGE}" \
     --region="${REGION}" \
-    --command=/usr/local/bin/migrate \
+    --command=node \
+    --args=dist/migrate.js \
     --set-cloudsql-instances="${CONNECTION_NAME}" \
     --set-secrets="DATABASE_URL=${DB_URL_SECRET}:latest" \
     --project="${PROJECT_ID}" \
@@ -176,7 +177,8 @@ else
   gcloud run jobs create "${MIGRATE_JOB}" \
     --image="${API_IMAGE}" \
     --region="${REGION}" \
-    --command=/usr/local/bin/migrate \
+    --command=node \
+    --args=dist/migrate.js \
     --set-cloudsql-instances="${CONNECTION_NAME}" \
     --set-secrets="DATABASE_URL=${DB_URL_SECRET}:latest" \
     --max-retries=1 \
