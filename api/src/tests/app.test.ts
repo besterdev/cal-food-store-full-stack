@@ -174,6 +174,14 @@ describeIntegration("HTTP order contract", () => {
     expect(Number(gate.rows[0]?.window_ms)).toBe(60 * 60 * 1000);
   });
 
+  it("sends a deny-all content security policy", async () => {
+    const response = await request(app).get("/health/live").expect(200);
+
+    expect(response.headers["content-security-policy"]).toBe(
+      "default-src 'none';frame-ancestors 'none'",
+    );
+  });
+
   it("rejects unknown JSON fields", async () => {
     const response = await request(app)
       .post("/api/v1/orders")
