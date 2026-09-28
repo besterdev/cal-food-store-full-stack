@@ -307,6 +307,7 @@ Errors contain a stable machine code and safe message. Validation-class errors r
 - Browser-visible configuration contains only the public API origin. Database credentials and other secrets remain server-side environment variables.
 - CORS permits only the configured web origin and required methods/headers. Production TLS terminates before the web and API processes.
 - The API generates or validates a request ID for correlation and uses route templates rather than unbounded URLs in telemetry.
+- CI is a security gate: production dependency audit, Trivy scan of both runtime images, and CodeQL must pass, and `main` is branch-protected so failing checks block merge. Runtime images keep only `node` (npm, npx, and corepack are removed). Third-party actions with a history of tag hijacking are pinned to commit SHAs.
 - v1 has no Customer authentication; deployment must therefore treat Order placement as a deliberately public store operation and apply network-level rate limits where exposed.
 
 ## Local Docker Topology

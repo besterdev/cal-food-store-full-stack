@@ -92,6 +92,7 @@ Set `TEST_DATABASE_URL` for Postgres integration / Red concurrency tests.
 ## CI/CD & deploy
 
 - **CI** — format, lint, typecheck, tests (with Postgres), OpenAPI on every PR / `main`
+- **Security gate** — `pnpm audit` (high+), Trivy image scan (high+, fixable), CodeQL, Dependabot; `main` requires every check to pass before merge
 - **Deploy** — Cloud Run after CI on `main` ([`scripts/gcp-deploy.sh`](./scripts/gcp-deploy.sh))
 
 Setup: [`docs/gcp-cicd.md`](./docs/gcp-cicd.md)

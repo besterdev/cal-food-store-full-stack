@@ -4,7 +4,9 @@
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `CI` | PR + push to `main` | Frontend checks, Express API typecheck/tests (with Postgres)/build, OpenAPI lint |
+| `CI` | PR + push to `main` | Frontend checks, Express API typecheck/tests (with Postgres)/build, OpenAPI lint, `Security` (`pnpm audit --prod --audit-level high` for `api` and `web`), `Image scan` (Trivy on both images; fails on fixable HIGH/CRITICAL) |
+| `CodeQL` | PR + push to `main`, weekly | Static analysis for JavaScript/TypeScript and workflow files (`security-extended`) |
+| Dependabot | weekly | Update PRs for `api`/`web` npm, Dockerfiles, and GitHub Actions |
 | `Deploy GCP` | after CI succeeds on `main`, or manual dispatch | Build images, migrate, deploy API + web to Cloud Run |
 
 ## Auth model

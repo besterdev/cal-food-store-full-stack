@@ -12,7 +12,10 @@ RUN pnpm run build && pnpm prune --prod
 FROM node:22-alpine
 
 WORKDIR /app
-RUN addgroup -S app && adduser -S -G app app
+# The runtime only needs `node`; drop the bundled package managers and their CVE surface.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+    && addgroup -S app && adduser -S -G app app
 COPY --from=build /src/package.json /src/pnpm-lock.yaml* ./
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/dist ./dist

@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   frontend:
     name: Frontend
@@ -105,3 +108,58 @@ jobs:
 
       - name: Lint OpenAPI
         run: npx --yes @redocly/cli@1 lint docs/openapi.yaml
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Audit API production dependencies
+        working-directory: api
+        run: pnpm audit --prod --audit-level high
+
+      - name: Audit web production dependencies
+        working-directory: web
+        run: pnpm audit --prod --audit-level high
+
+  image-scan:
+    name: Image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -t food-store-api:ci api
+
+      - name: Build web image
+        run: docker build -t food-store-web:ci web
+
+      # Pinned to a commit SHA: trivy-action version tags were hijacked in March 2026.
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: food-store-api:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Scan web image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          scan-type: image
+          image-ref: food-store-web:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
