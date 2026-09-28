@@ -1,15 +1,7 @@
 import { Router } from "express";
 
-import {
-  ProductController,
-  type ProductControllerDeps,
-} from "./product.controller.js";
+import { listProducts } from "./product.controller.js";
+import type { ProductModel } from "./product.model.js";
 
-export const createProductRoutes = (deps: ProductControllerDeps): Router => {
-  const router = Router();
-  const controller = new ProductController(deps);
-
-  router.get("/products", controller.list);
-
-  return router;
-};
+export const createProductRoutes = (products: ProductModel): Router =>
+  Router().get("/products", listProducts(products));

@@ -1,24 +1,21 @@
 import { createPool } from "./config/database.js";
-import { loadConfig } from "./config/index.js";
+import { loadConfig } from "./config/env.js";
 import { applyMigrations } from "./config/migrations.js";
+import { errorMessage, jsonLogger as logger } from "./utils/logger.js";
 
-let databaseUrl: string;
-try {
-  databaseUrl = loadConfig().databaseUrl;
-} catch (err) {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-}
+const MIGRATION_TIMEOUT_MS = 60_000;
 
-const pool = createPool(databaseUrl);
+let exitCode = 0;
+const pool = createPool(loadConfig().databaseUrl, MIGRATION_TIMEOUT_MS);
 
 try {
   await applyMigrations(pool);
-  console.log("migrations applied");
-  process.exit(0);
+  logger.info("migrations applied");
 } catch (err) {
-  console.error(err);
-  process.exit(1);
+  logger.error("migrations failed", { error: errorMessage(err) });
+  exitCode = 1;
 } finally {
   await pool.end();
 }
+
+process.exit(exitCode);

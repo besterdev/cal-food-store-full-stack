@@ -1,17 +1,9 @@
 import { Router } from "express";
 
-import {
-  RedAvailabilityController,
-  type RedAvailabilityControllerDeps,
-} from "./red-availability.controller.js";
+import { resetRedAvailability } from "./red-availability.controller.js";
+import type { RedAvailabilityModel } from "./red-availability.model.js";
 
 export const createRedAvailabilityRoutes = (
-  deps: RedAvailabilityControllerDeps,
-): Router => {
-  const router = Router();
-  const controller = new RedAvailabilityController(deps);
-
-  router.post("/red-availability/reset", controller.reset);
-
-  return router;
-};
+  redAvailability: RedAvailabilityModel,
+): Router =>
+  Router().post("/red-availability/reset", resetRedAvailability(redAvailability));

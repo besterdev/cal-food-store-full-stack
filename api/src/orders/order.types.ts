@@ -1,4 +1,4 @@
-import type { Breakdown } from "./order.pricing.js";
+import type { FieldError } from "../utils/http-error.js";
 
 export interface OrderLine {
   productCode: string;
@@ -8,8 +8,27 @@ export interface OrderLine {
 export interface PlaceOrderCommand {
   idempotencyKey: string;
   lines: OrderLine[];
-  memberCardNumber?: string | null;
+  memberCardNumber: string | null;
 }
+
+/** Validated, canonical Order Intent; the raw Member Card never leaves `prepare`. */
+export interface PreparedIntent {
+  keyDigest: Buffer;
+  intentDigest: Buffer;
+  memberPresent: boolean;
+  lines: OrderLine[];
+}
+
+export interface ProductSnapshot {
+  code: string;
+  name: string;
+  unitPriceSatang: number;
+  displayOrder: number;
+}
+
+export type RedGateClaim =
+  | { ok: true; acceptedAt: Date }
+  | { ok: false; availableAt: Date };
 
 export interface ReceiptLine {
   productCode: string;
@@ -40,31 +59,32 @@ export interface Receipt {
   finalTotalSatang: number;
 }
 
-export interface PreparedIntent {
-  keyDigest: Buffer;
-  intentDigest: Buffer;
-  memberPresent: boolean;
-  lines: OrderLine[];
+/** Base class for business outcomes the controller maps to a public error code. */
+export class OrderError extends Error {}
+
+export class ValidationError extends OrderError {
+  constructor(readonly fields: FieldError[]) {
+    super("order validation failed");
+  }
 }
 
-export interface ProductSnapshot {
-  code: string;
-  name: string;
-  unitPriceSatang: number;
-  displayOrder: number;
+export class RedConflictError extends OrderError {
+  constructor(readonly availableAt: Date) {
+    super("red unavailable");
+  }
 }
 
-export type RedGateClaim =
-  | { ok: true; acceptedAt: Date }
-  | { ok: false; availableAt: Date };
+export class IdempotencyConflictError extends OrderError {
+  constructor() {
+    super("idempotency key reused for a different order intent");
+  }
+}
 
-export interface PlacementTx {
-  claimIdempotency(prepared: PreparedIntent, orderId: string): Promise<boolean>;
-  loadReceiptByKey(prepared: PreparedIntent): Promise<Receipt>;
-  loadProducts(codes: string[]): Promise<Map<string, ProductSnapshot>>;
-  readClock(): Promise<Date>;
-  claimRedGate(): Promise<RedGateClaim>;
-  insertAcceptedOrder(orderId: string, acceptedAt: Date, breakdown: Breakdown): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
+export class PricingError extends OrderError {}
+
+/** Infrastructure failure (database down, timeout, commit failure). */
+export class ServiceUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("order service unavailable", { cause });
+  }
 }

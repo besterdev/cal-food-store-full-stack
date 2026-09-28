@@ -2,25 +2,20 @@ import { createHash } from "node:crypto";
 
 import { v7 as uuidv7 } from "uuid";
 
+import type { FieldError } from "../utils/http-error.js";
+import type { OrderModel, OrderTransaction } from "./order.model.js";
+import { calculate } from "./order.pricing.js";
 import {
-  ErrInternal,
-  ErrInvalidIdempotencyKey,
+  OrderError,
   RedConflictError,
   ServiceUnavailableError,
   ValidationError,
-  type FieldError,
-} from "./order.errors.js";
-import type { OrderModel } from "./order.model.js";
-import { calculate, type Breakdown, type PricingInput } from "./order.pricing.js";
-import type {
-  OrderLine,
-  PlacementTx,
-  PlaceOrderCommand,
-  PreparedIntent,
-  Receipt,
+  type PlaceOrderCommand,
+  type PreparedIntent,
+  type Receipt,
 } from "./order.types.js";
 
-const SUPPORTED_PRODUCTS = new Set([
+const PRODUCT_CODES = new Set([
   "RED",
   "GREEN",
   "BLUE",
@@ -29,242 +24,141 @@ const SUPPORTED_PRODUCTS = new Set([
   "PURPLE",
   "ORANGE",
 ]);
+const MAX_LINES = 7;
+const MAX_QUANTITY = 999;
 
 export class OrderService {
   constructor(private readonly orders: OrderModel) {}
 
-  async placeOrder(
-    command: PlaceOrderCommand,
-    signal?: AbortSignal,
-  ): Promise<Receipt> {
-    if (signal?.aborted) {
-      throw new ServiceUnavailableError("request timed out", signal.reason);
-    }
-
-    const prepared = prepare(command);
-    const tx = await this.orders.beginPlacement(signal);
+  /** Validates, prices, and commits one Order, or replays an accepted intent. */
+  async placeOrder(command: PlaceOrderCommand): Promise<Receipt> {
+    const intent = prepare(command);
     try {
-      throwIfAborted(signal);
-      const orderId = uuidv7();
-      const claimed = await tx.claimIdempotency(prepared, orderId);
-      if (!claimed) {
-        const receipt = await tx.loadReceiptByKey(prepared);
-        await tx.commit();
-        return receipt;
-      }
-
-      const codes = prepared.lines.map((line) => line.productCode);
-      const products = await tx.loadProducts(codes);
-
-      const pricingInput: PricingInput = {
-        memberPresent: prepared.memberPresent,
-        lines: [],
-      };
-      let containsRed = false;
-
-      for (const line of prepared.lines) {
-        const product = products.get(line.productCode);
-        if (!product) {
-          throw new ValidationError([
-            {
-              field: "lines",
-              code: "UNSUPPORTED",
-              message: "product_code is not a supported Product",
-            },
-          ]);
-        }
-        if (line.productCode === "RED") {
-          containsRed = true;
-        }
-        pricingInput.lines.push({
-          productCode: product.code,
-          productName: product.name,
-          displayOrder: product.displayOrder,
-          quantity: line.quantity,
-          unitPriceSatang: product.unitPriceSatang,
-        });
-      }
-
-      let breakdown;
-      try {
-        breakdown = calculate(pricingInput);
-      } catch (err) {
-        throw Object.assign(new Error(ErrInternal.message, { cause: err }), {
-          name: "InternalError",
-        });
-      }
-
-      throwIfAborted(signal);
-      const acceptedAt = await applyRedGate(tx, containsRed);
-      await tx.insertAcceptedOrder(orderId, acceptedAt, breakdown);
-      await tx.commit();
-      return receiptFromBreakdown(
-        orderId,
-        new Date(acceptedAt.toISOString()),
-        breakdown,
-      );
+      return await this.orders.inTransaction((tx) => place(tx, intent));
     } catch (err) {
-      try {
-        await tx.rollback();
-      } catch {
-        // ignore rollback errors after a prior failure
+      if (err instanceof OrderError) {
+        throw err;
       }
-      if (signal?.aborted) {
-        throw new ServiceUnavailableError("request timed out", err);
-      }
-      throw err;
+      throw new ServiceUnavailableError(err);
     }
   }
 }
 
-/** Validates structural Order rules and builds canonical digests. */
-export const prepare = (command: PlaceOrderCommand): PreparedIntent => {
-  if (!validIdempotencyKey(command.idempotencyKey)) {
-    throw ErrInvalidIdempotencyKey;
-  }
-  if (command.lines.length === 0) {
-    throw new ValidationError([
-      {
-        field: "lines",
-        code: "REQUIRED",
-        message: "at least one Order Line is required",
-      },
-    ]);
-  }
-  if (command.lines.length > 7) {
-    throw new ValidationError([
-      {
-        field: "lines",
-        code: "OUT_OF_RANGE",
-        message: "an Order may contain at most seven Order Lines",
-      },
-    ]);
+const place = async (
+  tx: OrderTransaction,
+  intent: PreparedIntent,
+): Promise<Receipt> => {
+  const orderId = uuidv7();
+  if (!(await tx.claimIdempotencyKey(intent, orderId))) {
+    return tx.findReceiptByKey(intent);
   }
 
-  const seen = new Set<string>();
-  const normalized: OrderLine[] = [];
-  const fields: FieldError[] = [];
-
-  command.lines.forEach((line, index) => {
-    const fieldPrefix = `lines[${index}]`;
-    if (!SUPPORTED_PRODUCTS.has(line.productCode)) {
-      fields.push({
-        field: `${fieldPrefix}.product_code`,
-        code: "UNSUPPORTED",
-        message: "product_code is not a supported Product",
-      });
-      return;
-    }
-    if (seen.has(line.productCode)) {
-      fields.push({
-        field: `${fieldPrefix}.product_code`,
-        code: "DUPLICATE",
-        message: "product_code must be unique within the Order",
-      });
-      return;
-    }
-    if (
-      !Number.isInteger(line.quantity) ||
-      line.quantity < 1 ||
-      line.quantity > 999
-    ) {
-      fields.push({
-        field: `${fieldPrefix}.quantity`,
-        code: "OUT_OF_RANGE",
-        message: "quantity must be an integer from 1 through 999",
-      });
-      return;
-    }
-    seen.add(line.productCode);
-    normalized.push(line);
+  const products = await tx.loadProducts(
+    intent.lines.map((line) => line.productCode),
+  );
+  const breakdown = calculate({
+    memberPresent: intent.memberPresent,
+    lines: intent.lines.map((line) => {
+      const product = products.get(line.productCode);
+      if (!product) {
+        throw new Error(`product ${line.productCode} is missing from the catalog`);
+      }
+      return {
+        productCode: product.code,
+        productName: product.name,
+        displayOrder: product.displayOrder,
+        unitPriceSatang: product.unitPriceSatang,
+        quantity: line.quantity,
+      };
+    }),
   });
 
-  if (fields.length > 0) {
-    throw new ValidationError(fields);
-  }
-
-  const memberPresent =
-    command.memberCardNumber !== undefined &&
-    command.memberCardNumber !== null &&
-    command.memberCardNumber.trim() !== "";
-
-  const sorted = [...normalized].sort((a, b) =>
-    a.productCode < b.productCode ? -1 : a.productCode > b.productCode ? 1 : 0,
-  );
-
-  let canonical = "v1\n";
-  canonical += memberPresent ? "member=1\n" : "member=0\n";
-  for (const line of sorted) {
-    canonical += `${line.productCode}=${line.quantity}\n`;
-  }
-
-  return {
-    keyDigest: createHash("sha256").update(command.idempotencyKey).digest(),
-    intentDigest: createHash("sha256").update(canonical).digest(),
-    memberPresent,
-    lines: sorted,
-  };
+  const acceptedAt = await acceptanceTime(tx, intent);
+  await tx.insertOrder(orderId, acceptedAt, breakdown);
+  return tx.loadReceipt(orderId);
 };
 
-export const validIdempotencyKey = (value: string): boolean => {
-  if (value.length < 1 || value.length > 128) {
-    return false;
-  }
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code < 0x20 || code > 0x7e) {
-      return false;
-    }
-  }
-  return true;
-};
-
-const receiptFromBreakdown = (
-  orderId: string,
-  acceptedAt: Date,
-  breakdown: Breakdown,
-): Receipt => ({
-  orderId,
-  acceptedAt,
-  currency: "THB",
-  lines: breakdown.lines.map((line) => ({
-    productCode: line.productCode,
-    productName: line.productName,
-    quantity: line.quantity,
-    unitPriceSatang: line.unitPriceSatang,
-    lineTotalBeforeDiscountSatang: line.lineSubtotalSatang,
-  })),
-  totalBeforeDiscountSatang: breakdown.totalBeforeDiscountSatang,
-  pairDiscounts: breakdown.pairDiscounts.map((discount) => ({
-    productCode: discount.productCode,
-    pairCount: discount.pairCount,
-    pairedQuantity: discount.pairedQuantity,
-    discountRateBasisPoints: discount.discountRateBasisPoints,
-    discountSatang: discount.discountSatang,
-  })),
-  pairDiscountTotalSatang: breakdown.pairDiscountTotalSatang,
-  memberApplied: breakdown.memberApplied,
-  memberDiscountSatang: breakdown.memberDiscountSatang,
-  finalTotalSatang: breakdown.finalTotalSatang,
-});
-
-const applyRedGate = async (
-  tx: PlacementTx,
-  containsRed: boolean,
+/** Red Orders take the Red gate; every other Order just reads PostgreSQL time. */
+const acceptanceTime = async (
+  tx: OrderTransaction,
+  intent: PreparedIntent,
 ): Promise<Date> => {
-  if (!containsRed) {
+  if (!intent.lines.some((line) => line.productCode === "RED")) {
     return tx.readClock();
   }
-
   const claim = await tx.claimRedGate();
   if (!claim.ok) {
-    throw new RedConflictError(new Date(claim.availableAt.toISOString()));
+    throw new RedConflictError(claim.availableAt);
   }
   return claim.acceptedAt;
 };
 
-const throwIfAborted = (signal?: AbortSignal): void => {
-  if (signal?.aborted) {
-    throw new ServiceUnavailableError("request timed out", signal.reason);
+/** Applies the Order Line rules and builds the canonical idempotency digests. */
+export const prepare = (command: PlaceOrderCommand): PreparedIntent => {
+  if (command.lines.length === 0) {
+    throw lineCountError("REQUIRED", "at least one Order Line is required");
   }
+  if (command.lines.length > MAX_LINES) {
+    throw lineCountError(
+      "OUT_OF_RANGE",
+      "an Order may contain at most seven Order Lines",
+    );
+  }
+
+  const seen = new Set<string>();
+  const fields: FieldError[] = [];
+  command.lines.forEach((line, index) => {
+    const field = `lines[${index}]`;
+    if (!PRODUCT_CODES.has(line.productCode)) {
+      fields.push({
+        field: `${field}.product_code`,
+        code: "UNSUPPORTED",
+        message: "product_code is not a supported Product",
+      });
+    } else if (seen.has(line.productCode)) {
+      fields.push({
+        field: `${field}.product_code`,
+        code: "DUPLICATE",
+        message: "product_code must be unique within the Order",
+      });
+    } else if (
+      !Number.isInteger(line.quantity) ||
+      line.quantity < 1 ||
+      line.quantity > MAX_QUANTITY
+    ) {
+      fields.push({
+        field: `${field}.quantity`,
+        code: "OUT_OF_RANGE",
+        message: "quantity must be an integer from 1 through 999",
+      });
+    }
+    seen.add(line.productCode);
+  });
+  if (fields.length > 0) {
+    throw new ValidationError(fields);
+  }
+
+  const memberPresent = (command.memberCardNumber ?? "").trim() !== "";
+  const lines = [...command.lines].sort((a, b) =>
+    a.productCode < b.productCode ? -1 : 1,
+  );
+  const canonicalIntent = [
+    "v1",
+    `member=${memberPresent ? 1 : 0}`,
+    ...lines.map((line) => `${line.productCode}=${line.quantity}`),
+    "",
+  ].join("\n");
+
+  return {
+    keyDigest: sha256(command.idempotencyKey),
+    intentDigest: sha256(canonicalIntent),
+    memberPresent,
+    lines,
+  };
 };
+
+const lineCountError = (code: string, message: string): ValidationError =>
+  new ValidationError([{ field: "lines", code, message }]);
+
+const sha256 = (value: string): Buffer =>
+  createHash("sha256").update(value).digest();

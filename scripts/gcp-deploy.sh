@@ -154,7 +154,7 @@ gcloud run deploy "${API_SERVICE}" \
   --max-instances=5 \
   --timeout=60 \
   --set-cloudsql-instances="${CONNECTION_NAME}" \
-  --set-env-vars="API_ADDRESS=:8080,CORS_ALLOWED_ORIGINS=${INITIAL_CORS}" \
+  --set-env-vars="CORS_ALLOWED_ORIGINS=${INITIAL_CORS}" \
   --set-secrets="DATABASE_URL=${DB_URL_SECRET}:latest" \
   --project="${PROJECT_ID}" \
   --quiet

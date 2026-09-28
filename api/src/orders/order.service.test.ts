@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
-import { ErrInvalidIdempotencyKey, ValidationError } from "./order.errors.js";
 import { prepare } from "./order.service.js";
+import { ValidationError } from "./order.types.js";
 
 describe("prepare", () => {
   it("builds canonical digests independent of line order", () => {
@@ -48,16 +48,8 @@ describe("prepare", () => {
           { productCode: "BLUE", quantity: 1 },
           { productCode: "BLUE", quantity: 2 },
         ],
+        memberCardNumber: null,
       }),
     ).toThrow(ValidationError);
-  });
-
-  it("rejects invalid idempotency keys", () => {
-    expect(() =>
-      prepare({
-        idempotencyKey: "",
-        lines: [{ productCode: "BLUE", quantity: 1 }],
-      }),
-    ).toThrow(ErrInvalidIdempotencyKey);
   });
 });

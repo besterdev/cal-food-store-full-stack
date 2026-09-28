@@ -1,16 +1,9 @@
 import { Router } from "express";
 
-import {
-  HealthController,
-  type HealthControllerDeps,
-} from "./health.controller.js";
+import { live, ready } from "./health.controller.js";
+import type { HealthModel } from "./health.model.js";
 
-export const createHealthRoutes = (deps: HealthControllerDeps): Router => {
-  const router = Router();
-  const controller = new HealthController(deps);
-
-  router.get("/health/live", controller.live);
-  router.get("/health/ready", controller.ready);
-
-  return router;
-};
+export const createHealthRoutes = (health: HealthModel): Router =>
+  Router()
+    .get("/health/live", live)
+    .get("/health/ready", ready(health));

@@ -281,7 +281,7 @@ Reading `clock_timestamp()` after acquiring the row lock means a request that wa
 - If `database_now >= available_at`, it uses that same value as the Red Order's `placed_at`, updates `available_at = database_now + interval '60 minutes'`, then inserts the Order and Order Lines. A non-Red Order reads PostgreSQL time immediately before its insert.
 - It commits the key claim, Red gate update, Order, and snapshots together.
 
-`OrderModel.claimRedGate()` performs these steps and returns either the accepted time or the current `available_at`; the Order service only maps a failed claim to a Red conflict. The singleton row lock serializes Red Orders across concurrent requests and API instances. For different idempotency keys, at most one simultaneous Red Order sees the gate available. For the same key, the idempotency claim serializes first; followers replay the winner without consuming another window. Any error after the gate update rolls it back with the Order.
+`OrderTransaction.claimRedGate()` performs these steps and returns either the accepted time or the current `available_at`; the Order service only maps a failed claim to a Red conflict. The singleton row lock serializes Red Orders across concurrent requests and API instances. For different idempotency keys, at most one simultaneous Red Order sees the gate available. For the same key, the idempotency claim serializes first; followers replay the winner without consuming another window. Any error after the gate update rolls it back with the Order.
 
 ## Failure Semantics and Recovery
 

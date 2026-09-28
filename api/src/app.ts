@@ -3,29 +3,24 @@ import type { Pool } from "pg";
 
 import { loadErrorHandlers, loadMiddleware } from "./loaders/express.js";
 import { loadRoutes } from "./loaders/routes.js";
-import type { RequestLogger } from "./middleware/request-log.js";
+import { silentLogger, type Logger } from "./utils/logger.js";
 
 export interface AppOptions {
   pool: Pool;
   allowedOrigins: string[];
-  requestTimeoutMs?: number;
-  readinessTimeoutMs?: number;
-  logger?: RequestLogger;
+  logger?: Logger;
 }
 
-export const createApp = (options: AppOptions): Express => {
+export const createApp = ({
+  pool,
+  allowedOrigins,
+  logger = silentLogger,
+}: AppOptions): Express => {
   const app = express();
 
-  loadMiddleware(app, {
-    allowedOrigins: options.allowedOrigins,
-    logger: options.logger ?? { info: () => undefined },
-  });
-  loadRoutes(app, {
-    pool: options.pool,
-    requestTimeoutMs: options.requestTimeoutMs ?? 3000,
-    readinessTimeoutMs: options.readinessTimeoutMs ?? 2000,
-  });
-  loadErrorHandlers(app);
+  loadMiddleware(app, { allowedOrigins, logger });
+  loadRoutes(app, pool);
+  loadErrorHandlers(app, logger);
 
   return app;
 };

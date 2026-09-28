@@ -1,6 +1,9 @@
-export const ErrArithmetic = new Error("pricing arithmetic overflow");
+import { PricingError } from "./order.types.js";
 
 const PAIR_ELIGIBLE = new Set(["GREEN", "PINK", "ORANGE"]);
+const PAIR_DISCOUNT_PERCENT = 5;
+const MEMBER_DISCOUNT_PERCENT = 10;
+export const PAIR_DISCOUNT_BASIS_POINTS = PAIR_DISCOUNT_PERCENT * 100;
 
 export interface LineInput {
   productCode: string;
@@ -48,7 +51,7 @@ export interface Breakdown {
 /** Prices an Order Intent using integer satang arithmetic (Number / safe int). */
 export const calculate = (input: PricingInput): Breakdown => {
   if (input.lines.length === 0) {
-    throw new Error("pricing requires at least one line");
+    throw new PricingError("pricing requires at least one line");
   }
 
   const lines = [...input.lines].sort((a, b) => a.displayOrder - b.displayOrder);
@@ -58,19 +61,15 @@ export const calculate = (input: PricingInput): Breakdown => {
   let pairTotal = 0;
 
   for (const line of lines) {
-    const lineSubtotal = checkedMul(line.quantity, line.unitPriceSatang);
-    let pairCount = 0;
-    let pairDiscount = 0;
-
-    if (PAIR_ELIGIBLE.has(line.productCode)) {
-      pairCount = Math.trunc(line.quantity / 2);
-      if (pairCount > 0) {
-        const pairBase = checkedMul(pairCount * 2, line.unitPriceSatang);
-        pairDiscount = roundHalfUpPercent(pairBase, 5);
-      }
-    }
-
-    const lineAfterPair = checkedSub(lineSubtotal, pairDiscount);
+    const lineSubtotal = safe(line.quantity * line.unitPriceSatang);
+    const pairCount = PAIR_ELIGIBLE.has(line.productCode)
+      ? Math.trunc(line.quantity / 2)
+      : 0;
+    const pairDiscount = roundHalfUpPercent(
+      safe(pairCount * 2 * line.unitPriceSatang),
+      PAIR_DISCOUNT_PERCENT,
+    );
+    const lineAfterPair = safe(lineSubtotal - pairDiscount);
     results.push({
       productCode: line.productCode,
       productName: line.productName,
@@ -83,26 +82,25 @@ export const calculate = (input: PricingInput): Breakdown => {
       lineTotalAfterPairSatang: lineAfterPair,
     });
 
-    totalBefore = checkedAdd(totalBefore, lineSubtotal);
-    pairTotal = checkedAdd(pairTotal, pairDiscount);
+    totalBefore = safe(totalBefore + lineSubtotal);
+    pairTotal = safe(pairTotal + pairDiscount);
 
     if (pairCount > 0) {
       pairDiscounts.push({
         productCode: line.productCode,
         pairCount,
         pairedQuantity: pairCount * 2,
-        discountRateBasisPoints: 500,
+        discountRateBasisPoints: PAIR_DISCOUNT_BASIS_POINTS,
         discountSatang: pairDiscount,
       });
     }
   }
 
-  const totalAfterPair = checkedSub(totalBefore, pairTotal);
-  let memberDiscount = 0;
-  if (input.memberPresent) {
-    memberDiscount = roundHalfUpPercent(totalAfterPair, 10);
-  }
-  const finalTotal = checkedSub(totalAfterPair, memberDiscount);
+  const totalAfterPair = safe(totalBefore - pairTotal);
+  const memberDiscount = input.memberPresent
+    ? roundHalfUpPercent(totalAfterPair, MEMBER_DISCOUNT_PERCENT)
+    : 0;
+  const finalTotal = safe(totalAfterPair - memberDiscount);
 
   return {
     lines: results,
@@ -115,29 +113,14 @@ export const calculate = (input: PricingInput): Breakdown => {
   };
 };
 
-const roundHalfUpPercent = (amount: number, percent: number): number => {
-  const scaled = checkedMul(amount, percent);
-  return Math.trunc((scaled + 50) / 100);
-};
+/** Integer percentage of a satang amount, rounded half-up. */
+const roundHalfUpPercent = (amount: number, percent: number): number =>
+  Math.trunc(safe(safe(amount * percent) + 50) / 100);
 
-const assertSafeInt = (value: number): number => {
-  if (!Number.isInteger(value) || !Number.isSafeInteger(value)) {
-    throw ErrArithmetic;
+/** Every intermediate satang value must stay an exact safe integer. */
+const safe = (value: number): number => {
+  if (!Number.isSafeInteger(value)) {
+    throw new PricingError("pricing arithmetic overflow");
   }
   return value;
 };
-
-const checkedMul = (a: number, b: number): number => {
-  if (a === 0 || b === 0) {
-    return 0;
-  }
-  const product = a * b;
-  if (!Number.isSafeInteger(product)) {
-    throw ErrArithmetic;
-  }
-  return product;
-};
-
-const checkedAdd = (a: number, b: number): number => assertSafeInt(a + b);
-
-const checkedSub = (a: number, b: number): number => assertSafeInt(a - b);

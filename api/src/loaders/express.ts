@@ -1,38 +1,32 @@
 import express, { type Express } from "express";
 
 import { corsMiddleware } from "../middleware/cors.js";
-import {
-  jsonSyntaxErrorHandler,
-  unexpectedErrorHandler,
-} from "../middleware/error-handlers.js";
+import { errorHandler } from "../middleware/error-handler.js";
 import { requestIdMiddleware } from "../middleware/request-id.js";
-import {
-  requestLogMiddleware,
-  type RequestLogger,
-} from "../middleware/request-log.js";
+import { requestLogMiddleware } from "../middleware/request-log.js";
 import { securityMiddleware } from "../middleware/security.js";
+import type { Logger } from "../utils/logger.js";
 
-const MAX_ORDER_BODY_BYTES = 16 * 1024;
+const MAX_BODY_BYTES = 16 * 1024;
 
-export interface ExpressLoaderOptions {
+export interface MiddlewareOptions {
   allowedOrigins: string[];
-  logger: RequestLogger;
+  logger: Logger;
 }
 
 export const loadMiddleware = (
   app: Express,
-  options: ExpressLoaderOptions,
+  { allowedOrigins, logger }: MiddlewareOptions,
 ): void => {
   app.disable("x-powered-by");
   app.use(securityMiddleware);
   // Request ID before body parsing so malformed JSON still carries request_id.
   app.use(requestIdMiddleware);
-  app.use(requestLogMiddleware(options.logger));
-  app.use(corsMiddleware(options.allowedOrigins));
-  app.use(express.json({ limit: MAX_ORDER_BODY_BYTES }));
+  app.use(requestLogMiddleware(logger));
+  app.use(corsMiddleware(allowedOrigins));
+  app.use(express.json({ limit: MAX_BODY_BYTES }));
 };
 
-export const loadErrorHandlers = (app: Express): void => {
-  app.use(jsonSyntaxErrorHandler);
-  app.use(unexpectedErrorHandler);
+export const loadErrorHandlers = (app: Express, logger: Logger): void => {
+  app.use(errorHandler(logger));
 };

@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
+import { createPool } from "../config/database.js";
 import { applyMigrations } from "../config/migrations.js";
 import { RedAvailabilityModel } from "../red-availability/red-availability.model.js";
 
@@ -18,7 +19,7 @@ describeIntegration("HTTP order contract", () => {
   let app: ReturnType<typeof createApp>;
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: databaseUrl });
+    pool = createPool(databaseUrl, 1000);
     await applyMigrations(pool);
     app = createApp({
       pool,
@@ -34,7 +35,7 @@ describeIntegration("HTTP order contract", () => {
     await pool.query(
       "TRUNCATE order_lines, order_idempotency, orders RESTART IDENTITY",
     );
-    await new RedAvailabilityModel(pool).resetRedAvailability();
+    await new RedAvailabilityModel(pool).reset();
   });
 
   it("lists exactly seven seeded products", async () => {
@@ -174,6 +175,31 @@ describeIntegration("HTTP order contract", () => {
     expect(Number(gate.rows[0]?.window_ms)).toBe(60 * 60 * 1000);
   });
 
+  it("returns 503 and persists nothing when the red gate stays locked", async () => {
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        "SELECT 1 FROM red_availability_gate WHERE product_code = 'RED' FOR UPDATE",
+      );
+
+      const response = await request(app)
+        .post("/api/v1/orders")
+        .set("Idempotency-Key", randomUUID())
+        .send({ lines: [{ product_code: "RED", quantity: 1 }] })
+        .expect(503);
+      expect(response.body.code).toBe("SERVICE_UNAVAILABLE");
+    } finally {
+      await holder.query("ROLLBACK");
+      holder.release();
+    }
+
+    const orders = await pool.query<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM order_idempotency",
+    );
+    expect(orders.rows[0]?.count).toBe(0);
+  });
+
   it("sends a deny-all content security policy", async () => {
     const response = await request(app).get("/health/live").expect(200);
 
@@ -202,6 +228,41 @@ describeIntegration("HTTP order contract", () => {
       .expect(400);
 
     expect(response.body.code).toBe("INVALID_IDEMPOTENCY_KEY");
+  });
+
+  it("rejects an idempotency key longer than 128 characters", async () => {
+    const response = await request(app)
+      .post("/api/v1/orders")
+      .set("Idempotency-Key", "k".repeat(129))
+      .send({ lines: [{ product_code: "BLUE", quantity: 1 }] })
+      .expect(400);
+
+    expect(response.body.code).toBe("INVALID_IDEMPOTENCY_KEY");
+  });
+
+  it("lists products with integer satang prices in display order", async () => {
+    const response = await request(app).get("/api/v1/products").expect(200);
+
+    expect(
+      response.body.products.map(
+        (product: { code: string; unit_price_satang: number }) => [
+          product.code,
+          product.unit_price_satang,
+        ],
+      ),
+    ).toEqual([
+      ["RED", 5000],
+      ["GREEN", 4000],
+      ["BLUE", 3000],
+      ["YELLOW", 5000],
+      ["PINK", 8000],
+      ["PURPLE", 9000],
+      ["ORANGE", 12000],
+    ]);
+  });
+
+  it("reports readiness when migrations are applied", async () => {
+    await request(app).get("/health/ready").expect(200, { status: "ok" });
   });
 
   it("returns a request_id when JSON is malformed", async () => {

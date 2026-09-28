@@ -1,14 +1,13 @@
 import type { NextFunction, Request, Response } from "express";
 
-export interface RequestLogger {
-  info: (message: string, fields?: Record<string, unknown>) => void;
-}
+import type { LogFields, Logger } from "../utils/logger.js";
 
-export const requestLogMiddleware = (logger: RequestLogger) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
+export const requestLogMiddleware =
+  (logger: Logger) =>
+  (req: Request, res: Response, next: NextFunction): void => {
     const started = Date.now();
     res.on("finish", () => {
-      const fields: Record<string, unknown> = {
+      const fields: LogFields = {
         request_id: res.locals.requestId,
         method: req.method,
         route: req.path,
@@ -22,4 +21,3 @@ export const requestLogMiddleware = (logger: RequestLogger) => {
     });
     next();
   };
-};

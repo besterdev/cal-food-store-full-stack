@@ -1,173 +1,79 @@
-import type { FieldError } from "./order.errors.js";
-import type { PlaceOrderCommand } from "./order.types.js";
+import type { FieldError } from "../utils/http-error.js";
+import type { OrderLine } from "./order.types.js";
 
-interface CreateOrderLineWire {
-  product_code: string;
-  quantity: number;
+export interface OrderRequest {
+  lines: OrderLine[];
+  memberCardNumber: string | null;
 }
 
-interface CreateOrderRequestWire {
-  lines: CreateOrderLineWire[];
-  member_card_number?: string | null;
-}
+export type DecodeResult =
+  | { ok: true; request: OrderRequest }
+  | { ok: false; message: string; fieldErrors: FieldError[] };
 
-export type DecodeOrderResult =
-  | { ok: true; request: CreateOrderRequestWire }
-  | { ok: false; message: string; fieldErrors?: FieldError[] };
+const IDEMPOTENCY_KEY = /^[\x20-\x7e]{1,128}$/;
 
-/** Strictly decode a create-order JSON body; rejects unknown fields. */
-export const decodeCreateOrderRequest = (body: unknown): DecodeOrderResult => {
-  if (body === undefined || body === null || typeof body !== "object") {
-    return { ok: false, message: "Request body is not valid JSON." };
+/** 1-128 printable ASCII characters. */
+export const isValidIdempotencyKey = (value: string): boolean =>
+  IDEMPOTENCY_KEY.test(value);
+
+/**
+ * Strict structural decode of the create-order body: unknown fields and wrong
+ * JSON types are rejected here; Order Line business rules live in `prepare`.
+ */
+export const decodeOrderRequest = (body: unknown): DecodeResult => {
+  if (!isRecord(body)) {
+    return { ok: false, message: "Request body is not valid JSON.", fieldErrors: [] };
+  }
+  const unknownKey = findUnknownKey(body, ["lines", "member_card_number"]);
+  if (unknownKey) {
+    return unknownField(unknownKey);
+  }
+  if (!Array.isArray(body.lines)) {
+    return invalidType("lines");
   }
 
-  const record = body as Record<string, unknown>;
-  const allowedKeys = new Set(["lines", "member_card_number"]);
-  for (const key of Object.keys(record)) {
-    if (!allowedKeys.has(key)) {
-      return {
-        ok: false,
-        message: "Request body contains an unknown field.",
-        fieldErrors: [
-          { field: key, code: "UNKNOWN_FIELD", message: "field is not allowed" },
-        ],
-      };
+  const lines: OrderLine[] = [];
+  for (const [index, line] of body.lines.entries()) {
+    const field = `lines[${index}]`;
+    if (!isRecord(line)) {
+      return invalidType(field);
     }
+    const unknownLineKey = findUnknownKey(line, ["product_code", "quantity"]);
+    if (unknownLineKey) {
+      return unknownField(`${field}.${unknownLineKey}`);
+    }
+    if (typeof line.product_code !== "string") {
+      return invalidType(`${field}.product_code`);
+    }
+    if (typeof line.quantity !== "number" || !Number.isInteger(line.quantity)) {
+      return invalidType(`${field}.quantity`);
+    }
+    lines.push({ productCode: line.product_code, quantity: line.quantity });
   }
 
-  if (!("lines" in record)) {
-    return {
-      ok: false,
-      message: "Request body contains an invalid field type.",
-      fieldErrors: [
-        {
-          field: "lines",
-          code: "INVALID_TYPE",
-          message: "field has an invalid type",
-        },
-      ],
-    };
+  const memberCardNumber = body.member_card_number ?? null;
+  if (memberCardNumber === null || typeof memberCardNumber === "string") {
+    return { ok: true, request: { lines, memberCardNumber } };
   }
-
-  if (!Array.isArray(record.lines)) {
-    return {
-      ok: false,
-      message: "Request body contains an invalid field type.",
-      fieldErrors: [
-        {
-          field: "lines",
-          code: "INVALID_TYPE",
-          message: "field has an invalid type",
-        },
-      ],
-    };
-  }
-
-  const lines: CreateOrderLineWire[] = [];
-  for (let index = 0; index < record.lines.length; index += 1) {
-    const line = record.lines[index];
-    if (line === null || typeof line !== "object" || Array.isArray(line)) {
-      return {
-        ok: false,
-        message: "Request body contains an invalid field type.",
-        fieldErrors: [
-          {
-            field: `lines[${index}]`,
-            code: "INVALID_TYPE",
-            message: "field has an invalid type",
-          },
-        ],
-      };
-    }
-    const lineRecord = line as Record<string, unknown>;
-    for (const key of Object.keys(lineRecord)) {
-      if (key !== "product_code" && key !== "quantity") {
-        return {
-          ok: false,
-          message: "Request body contains an unknown field.",
-          fieldErrors: [
-            {
-              field: `lines[${index}].${key}`,
-              code: "UNKNOWN_FIELD",
-              message: "field is not allowed",
-            },
-          ],
-        };
-      }
-    }
-    if (typeof lineRecord.product_code !== "string") {
-      return {
-        ok: false,
-        message: "Request body contains an invalid field type.",
-        fieldErrors: [
-          {
-            field: `lines[${index}].product_code`,
-            code: "INVALID_TYPE",
-            message: "field has an invalid type",
-          },
-        ],
-      };
-    }
-    if (
-      typeof lineRecord.quantity !== "number" ||
-      !Number.isInteger(lineRecord.quantity)
-    ) {
-      return {
-        ok: false,
-        message: "Request body contains an invalid field type.",
-        fieldErrors: [
-          {
-            field: `lines[${index}].quantity`,
-            code: "INVALID_TYPE",
-            message: "field has an invalid type",
-          },
-        ],
-      };
-    }
-    lines.push({
-      product_code: lineRecord.product_code,
-      quantity: lineRecord.quantity,
-    });
-  }
-
-  let memberCardNumber: string | null | undefined;
-  if ("member_card_number" in record) {
-    const value = record.member_card_number;
-    if (value !== null && typeof value !== "string") {
-      return {
-        ok: false,
-        message: "Request body contains an invalid field type.",
-        fieldErrors: [
-          {
-            field: "member_card_number",
-            code: "INVALID_TYPE",
-            message: "field has an invalid type",
-          },
-        ],
-      };
-    }
-    memberCardNumber = value as string | null;
-  }
-
-  return {
-    ok: true,
-    request: {
-      lines,
-      ...(memberCardNumber !== undefined
-        ? { member_card_number: memberCardNumber }
-        : {}),
-    },
-  };
+  return invalidType("member_card_number");
 };
 
-export const toPlaceOrderCommand = (
-  idempotencyKey: string,
-  request: CreateOrderRequestWire,
-): PlaceOrderCommand => ({
-  idempotencyKey,
-  lines: request.lines.map((line) => ({
-    productCode: line.product_code,
-    quantity: line.quantity,
-  })),
-  memberCardNumber: request.member_card_number ?? null,
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const findUnknownKey = (
+  record: Record<string, unknown>,
+  allowed: string[],
+): string | undefined => Object.keys(record).find((key) => !allowed.includes(key));
+
+const unknownField = (field: string): DecodeResult => ({
+  ok: false,
+  message: "Request body contains an unknown field.",
+  fieldErrors: [{ field, code: "UNKNOWN_FIELD", message: "field is not allowed" }],
+});
+
+const invalidType = (field: string): DecodeResult => ({
+  ok: false,
+  message: "Request body contains an invalid field type.",
+  fieldErrors: [{ field, code: "INVALID_TYPE", message: "field has an invalid type" }],
 });

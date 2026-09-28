@@ -1,118 +1,114 @@
 import type { Request, Response } from "express";
 
-import { writeError } from "../middleware/http-errors.js";
-import { runWithTimeout } from "../utils/timeout.js";
+import { writeError, writeServiceUnavailable } from "../utils/http-error.js";
+import type { OrderService } from "./order.service.js";
 import {
-  ErrIdempotencyConflict,
-  ErrInvalidIdempotencyKey,
+  IdempotencyConflictError,
   RedConflictError,
   ServiceUnavailableError,
   ValidationError,
-} from "./order.errors.js";
-import { validIdempotencyKey, type OrderService } from "./order.service.js";
-import {
-  decodeCreateOrderRequest,
-  toPlaceOrderCommand,
-} from "./order.validation.js";
-import { toReceiptView } from "./order.view.js";
+  type Receipt,
+} from "./order.types.js";
+import { decodeOrderRequest, isValidIdempotencyKey } from "./order.validation.js";
 
-export interface OrderControllerDeps {
-  orders: OrderService;
-  requestTimeoutMs: number;
-}
-
-export class OrderController {
-  constructor(private readonly deps: OrderControllerDeps) {}
-
-  create = async (req: Request, res: Response): Promise<void> => {
-    const key = req.header("Idempotency-Key") ?? "";
-    if (!validIdempotencyKey(key)) {
-      writeInvalidIdempotencyKey(res);
+export const createOrder =
+  (orders: OrderService) =>
+  async (req: Request, res: Response): Promise<void> => {
+    const idempotencyKey = req.header("Idempotency-Key") ?? "";
+    if (!isValidIdempotencyKey(idempotencyKey)) {
+      writeError(
+        res,
+        400,
+        "INVALID_IDEMPOTENCY_KEY",
+        "Idempotency-Key must contain 1 through 128 printable ASCII characters.",
+        {
+          fieldErrors: [
+            {
+              field: "Idempotency-Key",
+              code: "REQUIRED",
+              message: "header is required",
+            },
+          ],
+        },
+      );
       return;
     }
 
-    const decode = decodeCreateOrderRequest(req.body);
-    if (!decode.ok) {
-      writeError(res, 400, "MALFORMED_JSON", decode.message, decode.fieldErrors);
+    const decoded = decodeOrderRequest(req.body);
+    if (!decoded.ok) {
+      writeError(res, 400, "MALFORMED_JSON", decoded.message, {
+        fieldErrors: decoded.fieldErrors,
+      });
       return;
     }
 
     try {
-      const receipt = await runWithTimeout(
-        this.deps.requestTimeoutMs,
-        (signal) =>
-          this.deps.orders.placeOrder(
-            toPlaceOrderCommand(key, decode.request),
-            signal,
-          ),
-      );
-      res.setHeader("Location", `/api/v1/orders/${receipt.orderId}`);
-      res.status(201).json(toReceiptView(receipt));
+      const receipt = await orders.placeOrder({
+        idempotencyKey,
+        ...decoded.request,
+      });
+      res
+        .location(`/api/v1/orders/${receipt.orderId}`)
+        .status(201)
+        .json(toReceiptView(receipt));
     } catch (err) {
-      writeOrderError(res, err);
+      if (!writeOrderError(res, err)) {
+        throw err;
+      }
     }
   };
-}
 
-const writeInvalidIdempotencyKey = (res: Response): void => {
-  writeError(
-    res,
-    400,
-    "INVALID_IDEMPOTENCY_KEY",
-    "Idempotency-Key must contain 1 through 128 printable ASCII characters.",
-    [
-      {
-        field: "Idempotency-Key",
-        code: "REQUIRED",
-        message: "header is required",
-      },
-    ],
-  );
-};
-
-const writeOrderError = (res: Response, err: unknown): void => {
+/** Maps business outcomes to public errors; returns false for anything unexpected. */
+const writeOrderError = (res: Response, err: unknown): boolean => {
   if (err instanceof ValidationError) {
-    writeError(
-      res,
-      422,
-      "VALIDATION_ERROR",
-      "The Order contains invalid fields.",
-      err.fields,
-    );
-    return;
-  }
-  if (err instanceof RedConflictError) {
+    writeError(res, 422, "VALIDATION_ERROR", "The Order contains invalid fields.", {
+      fieldErrors: err.fields,
+    });
+  } else if (err instanceof RedConflictError) {
     writeError(
       res,
       409,
       "RED_UNAVAILABLE",
       "Red is unavailable until the specified time.",
-      undefined,
-      err.availableAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
+      { availableAt: err.availableAt.toISOString().replace(/\.\d{3}Z$/, "Z") },
     );
-    return;
-  }
-  if (err === ErrInvalidIdempotencyKey) {
-    writeInvalidIdempotencyKey(res);
-    return;
-  }
-  if (err === ErrIdempotencyConflict) {
+  } else if (err instanceof IdempotencyConflictError) {
     writeError(
       res,
       409,
       "IDEMPOTENCY_CONFLICT",
       "Idempotency-Key was already used for a different Order Intent.",
     );
-    return;
+  } else if (err instanceof ServiceUnavailableError) {
+    writeServiceUnavailable(res);
+  } else {
+    return false;
   }
-  if (err instanceof ServiceUnavailableError) {
-    writeError(
-      res,
-      503,
-      "SERVICE_UNAVAILABLE",
-      "The service is temporarily unavailable.",
-    );
-    return;
-  }
-  writeError(res, 500, "INTERNAL_ERROR", "An unexpected error occurred.");
+  return true;
 };
+
+/** Serializes a Receipt into the OpenAPI `OrderReceipt` JSON shape. */
+const toReceiptView = (receipt: Receipt) => ({
+  order_id: receipt.orderId,
+  accepted_at: receipt.acceptedAt.toISOString(),
+  currency: receipt.currency,
+  lines: receipt.lines.map((line) => ({
+    product_code: line.productCode,
+    product_name: line.productName,
+    quantity: line.quantity,
+    unit_price_satang: line.unitPriceSatang,
+    line_total_before_discount_satang: line.lineTotalBeforeDiscountSatang,
+  })),
+  total_before_discount_satang: receipt.totalBeforeDiscountSatang,
+  pair_discounts: receipt.pairDiscounts.map((discount) => ({
+    product_code: discount.productCode,
+    pair_count: discount.pairCount,
+    paired_quantity: discount.pairedQuantity,
+    discount_rate_basis_points: discount.discountRateBasisPoints,
+    discount_satang: discount.discountSatang,
+  })),
+  pair_discount_total_satang: receipt.pairDiscountTotalSatang,
+  member_applied: receipt.memberApplied,
+  member_discount_satang: receipt.memberDiscountSatang,
+  final_total_satang: receipt.finalTotalSatang,
+});

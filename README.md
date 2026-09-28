@@ -38,6 +38,7 @@ docker compose up --build
 | Web      | [http://localhost:3000](http://localhost:3000)                                 |
 | Products | [http://localhost:8080/api/v1/products](http://localhost:8080/api/v1/products) |
 | Health   | [http://localhost:8080/health/ready](http://localhost:8080/health/ready)       |
+| Postgres | `localhost:5432` · db/user/password `food_store`                               |
 
 
 Stop: `docker compose down`
@@ -48,12 +49,44 @@ Stop: `docker compose down`
 Browser → Next.js → Express (/api/v1) → PostgreSQL
 ```
 
-- Handlers → Order service → pure pricing module → Postgres adapter
-- API uses feature-based MVC: `api/src/<feature>/` holds `*.model.ts` (SQL), `*.controller.ts`, `*.routes.ts`, and an optional service ([ADR 0003](./docs/adr/0003-express-feature-mvc-layout.md))
+- Controllers → Order service → pure pricing → feature models (SQL)
+- API uses feature-based MVC under `api/src/<feature>/` ([ADR 0003](./docs/adr/0003-express-feature-mvc-layout.md))
 - Frontend never recalculates discounts; it renders the API Pricing Breakdown
 - PostgreSQL owns catalog, Orders, idempotency, and the Red gate
 
+## Project structure
 
+```text
+.
+├── api/                         Express + TypeScript API
+│   ├── migrations/              Versioned SQL (products, orders, Red gate)
+│   ├── Dockerfile
+│   └── src/
+│       ├── server.ts            Process entry
+│       ├── app.ts               Express app composition
+│       ├── migrate.ts           Migration entry
+│       ├── config/              env.ts, database.ts, migrations.ts
+│       ├── loaders/             Middleware stack and route mounting
+│       ├── middleware/          request-id, CORS, Helmet, request-log, error-handler
+│       ├── utils/               logger, http-error helpers
+│       ├── health/              health.model / controller / routes
+│       ├── products/            product.model / controller / routes
+│       ├── orders/              model, service, pricing, validation, controller, routes
+│       ├── red-availability/    reset helper (demo)
+│       └── tests/               HTTP + PostgreSQL contract tests
+├── web/                         Next.js App Router UI
+│   └── src/
+│       ├── app/                 layout, page
+│       ├── features/order/      calculator Client Component subtree
+│       ├── components/          common + owned shadcn/ui
+│       └── lib/                 Axios API client, React Query
+├── docs/                        Specs, OpenAPI, ADRs, test plan, verification
+├── scripts/                     GCP deploy
+├── compose.yaml                 web + api + postgres (+ migrate job)
+└── .github/workflows/           CI, CodeQL, deploy
+```
+
+Each API feature folder owns its `*.model.ts` (SQL), `*.controller.ts`, and `*.routes.ts`. Orders also keep `order.service.ts` (idempotency + Red gate) and `order.pricing.ts` (pure satang math).
 
 ## API
 
